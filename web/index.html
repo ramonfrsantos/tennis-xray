@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Plataforma Biomecânica de Tênis</title>
+    <link rel="stylesheet" href="/assets/estilos.css" />
+    <script type="module" src="/assets/app.js"></script>
+  </head>
+  <body>
+    <div class="aura aura-esquerda"></div>
+    <div class="aura aura-direita"></div>
+
+    <header class="topo">
+      <div class="bloco-titulo">
+        <p class="etiqueta">tracking visual + biomecânica + leitura contextual</p>
+        <h1>Plataforma Web de Análise Biomecânica para Tênis</h1>
+        <p class="subtitulo">
+          Projeto novo em português-BR com pipeline em cinco camadas para rastrear
+          marcadores, medir movimentos e gerar alertas acionáveis sobre estabilidade,
+          simetria e dinâmica de quadra.
+        </p>
+      </div>
+
+      <div class="acoes-topo">
+        <button id="botao-demo" class="botao primario" type="button">
+          Rodar demonstração
+        </button>
+        <button id="botao-pausar" class="botao secundario" type="button">
+          Pausar animação
+        </button>
+      </div>
+    </header>
+
+    <main class="grade-principal">
+      <section class="painel painel-video">
+        <div class="cabecalho-painel">
+          <div>
+            <p class="etiqueta">janela principal</p>
+            <h2>Vídeo com boxes, marcadores e HUD técnico</h2>
+          </div>
+          <div class="status-cluster">
+            <span id="status-fase" class="selo selo-menta">fase</span>
+            <span id="status-diagnostico" class="selo selo-laranja">diagnóstico</span>
+          </div>
+        </div>
+
+        <div class="video-wrap">
+          <svg id="svg-video" viewBox="0 0 1000 620" role="img" aria-label="Quadra com tracking"></svg>
+          <div class="hud">
+            <div class="hud-item">
+              <span class="hud-rotulo">Quadro</span>
+              <strong id="hud-quadro">0</strong>
+            </div>
+            <div class="hud-item">
+              <span class="hud-rotulo">Velocidade da bola</span>
+              <strong id="hud-bola">0,0 m/s</strong>
+            </div>
+            <div class="hud-item">
+              <span class="hud-rotulo">Calibração</span>
+              <strong id="hud-calibracao">0%</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="coluna-lateral">
+        <section class="painel">
+          <div class="cabecalho-painel">
+            <div>
+              <p class="etiqueta">estado da sessão</p>
+              <h2 id="titulo-sessao">Carregando sessão</h2>
+            </div>
+          </div>
+
+          <div class="lista-fatos">
+            <div>
+              <span class="rotulo-fato">Superfície</span>
+              <strong id="fato-superficie">-</strong>
+            </div>
+            <div>
+              <span class="rotulo-fato">Câmera</span>
+              <strong id="fato-camera">-</strong>
+            </div>
+            <div>
+              <span class="rotulo-fato">Quadros</span>
+              <strong id="fato-quadros">-</strong>
+            </div>
+            <div>
+              <span class="rotulo-fato">Duração</span>
+              <strong id="fato-duracao">-</strong>
+            </div>
+          </div>
+
+          <p id="observacao-sessao" class="texto-explicativo"></p>
+
+          <div class="bloco-camadas">
+            <p class="rotulo-fato">Arquitetura em camadas</p>
+            <ul id="lista-camadas" class="lista-pilhas"></ul>
+          </div>
+        </section>
+
+        <section class="painel">
+          <div class="cabecalho-painel">
+            <div>
+              <p class="etiqueta">tracking top-down</p>
+              <h2>Miniquadra e trilhas recentes</h2>
+            </div>
+          </div>
+          <svg id="svg-mini" viewBox="0 0 260 480" role="img" aria-label="Miniquadra"></svg>
+          <table class="tabela-atletas">
+            <thead>
+              <tr>
+                <th>Atleta</th>
+                <th>Veloc.</th>
+                <th>Tronco</th>
+                <th>Simetria</th>
+              </tr>
+            </thead>
+            <tbody id="tabela-atletas"></tbody>
+          </table>
+        </section>
+
+        <section class="painel">
+          <div class="cabecalho-painel">
+            <div>
+              <p class="etiqueta">camadas 4 e 5</p>
+              <h2>Leitura contextual e alertas</h2>
+            </div>
+          </div>
+
+          <p id="texto-relatorio" class="texto-explicativo"></p>
+
+          <div class="pilha-dupla">
+            <div>
+              <p class="rotulo-fato">Achados principais</p>
+              <ul id="lista-achados" class="lista-detalhes"></ul>
+            </div>
+            <div>
+              <p class="rotulo-fato">Alertas ativos</p>
+              <ul id="lista-alertas" class="lista-detalhes"></ul>
+            </div>
+          </div>
+
+          <div>
+            <p class="rotulo-fato">Recomendações</p>
+            <ul id="lista-recomendacoes" class="lista-detalhes"></ul>
+          </div>
+        </section>
+      </aside>
+
+      <section class="painel painel-tempo">
+        <div class="cabecalho-painel">
+          <div>
+            <p class="etiqueta">série temporal</p>
+            <h2>Linha do tempo biomecânica</h2>
+          </div>
+          <p class="legenda-linha">
+            estabilidade P1/P2, simetria instantânea e intensidade da bola
+          </p>
+        </div>
+        <svg id="svg-linha-tempo" viewBox="0 0 1200 280" role="img" aria-label="Linha do tempo"></svg>
+      </section>
+
+      <section class="painel painel-analises">
+        <div class="bloco-metricas">
+          <div class="cabecalho-painel">
+            <div>
+              <p class="etiqueta">métricas consolidadas</p>
+              <h2>Resumo biomecânico da janela</h2>
+            </div>
+          </div>
+          <div id="grade-metricas" class="grade-metricas"></div>
+        </div>
+
+        <div class="bloco-operacao">
+          <div class="cabecalho-painel">
+            <div>
+              <p class="etiqueta">interação rápida</p>
+              <h2>Upload e anotação clínica</h2>
+            </div>
+          </div>
+
+          <form id="form-upload" class="formulario">
+            <label class="campo">
+              <span>Enviar um vídeo</span>
+              <input id="campo-video" type="file" name="arquivo" accept="video/*" />
+            </label>
+            <button class="botao primario" type="submit">Enviar arquivo</button>
+            <p id="status-upload" class="texto-status">
+              O upload salva o arquivo e prepara a integração futura com inferência real.
+            </p>
+          </form>
+
+          <form id="form-anotacao" class="formulario">
+            <label class="campo">
+              <span>Anotação contextual</span>
+              <textarea
+                id="campo-anotacao"
+                rows="5"
+                placeholder="Ex.: atleta relatou leve desconforto no quadril direito após mudança de direção."
+              ></textarea>
+            </label>
+            <button class="botao secundario" type="submit">Interpretar anotação</button>
+            <p id="status-anotacao" class="texto-status">
+              A camada contextual transforma a anotação em prioridade clínica estruturada.
+            </p>
+          </form>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
+
