@@ -11,14 +11,12 @@
     <div class="aura aura-esquerda"></div>
     <div class="aura aura-direita"></div>
 
-    <header class="topo">
+    <header class="topo topo-minimalista">
       <div class="bloco-titulo">
-        <p class="etiqueta">tracking visual + biomecânica + leitura contextual</p>
-        <h1>Plataforma Web de Análise Biomecânica para Tênis</h1>
+        <p class="etiqueta">Tennis X-Ray</p>
+        <h1>Análise de saque e tracking em vídeo</h1>
         <p class="subtitulo">
-          Projeto novo em português-BR com pipeline em cinco camadas para rastrear
-          marcadores, medir movimentos e gerar alertas acionáveis sobre estabilidade,
-          simetria e dinâmica de quadra.
+          Envie o vídeo, calibre os pontos essenciais e revise o resultado com métricas claras.
         </p>
       </div>
 
@@ -36,13 +34,25 @@
       <section class="painel painel-video">
         <div class="cabecalho-painel">
           <div>
-            <p class="etiqueta">janela principal</p>
-            <h2>Vídeo com boxes, marcadores e HUD técnico</h2>
+            <p class="etiqueta">resultado</p>
+            <h2>Vídeo analisado</h2>
           </div>
           <div class="status-cluster">
             <span id="status-fase" class="selo selo-menta">fase</span>
             <span id="status-diagnostico" class="selo selo-laranja">diagnóstico</span>
           </div>
+        </div>
+
+        <div id="video-upload-card" class="video-upload-card oculto">
+          <div>
+            <p class="etiqueta">video analisado</p>
+            <h2>Leitura real do upload</h2>
+            <p class="texto-explicativo">
+              Este player mostra o video gerado a partir dos frames reais do arquivo
+              enviado, com jogadores, bola, trilhas e esqueleto desenhados sobre a imagem.
+            </p>
+          </div>
+          <video id="video-upload" class="player-video" controls playsinline></video>
         </div>
 
         <div class="video-wrap">
@@ -54,7 +64,7 @@
             </div>
             <div class="hud-item">
               <span class="hud-rotulo">Velocidade da bola</span>
-              <strong id="hud-bola">0,0 m/s</strong>
+              <strong id="hud-bola">0,0 km/h</strong>
             </div>
             <div class="hud-item">
               <span class="hud-rotulo">Calibração</span>
@@ -166,8 +176,8 @@
         <div class="bloco-metricas">
           <div class="cabecalho-painel">
             <div>
-              <p class="etiqueta">métricas consolidadas</p>
-              <h2>Resumo biomecânico da janela</h2>
+              <p class="etiqueta">métricas</p>
+              <h2>Resumo essencial</h2>
             </div>
           </div>
           <div id="grade-metricas" class="grade-metricas"></div>
@@ -176,8 +186,8 @@
         <div class="bloco-operacao">
           <div class="cabecalho-painel">
             <div>
-              <p class="etiqueta">interação rápida</p>
-              <h2>Upload e anotação clínica</h2>
+              <p class="etiqueta">entrada</p>
+              <h2>Enviar vídeo</h2>
             </div>
           </div>
 
@@ -187,8 +197,11 @@
               <input id="campo-video" type="file" name="arquivo" accept="video/*" />
             </label>
             <button class="botao primario" type="submit">Enviar arquivo</button>
+            <button id="botao-cancelar-job" class="botao secundario oculto" type="button">
+              Finalizar processamento
+            </button>
             <p id="status-upload" class="texto-status">
-              O upload salva o arquivo e prepara a integração futura com inferência real.
+              Selecione, calibre e processe o video.
             </p>
           </form>
 
@@ -209,6 +222,80 @@
         </div>
       </section>
     </main>
+
+    <div id="modal-calibracao" class="modal-calibracao oculto" aria-hidden="true">
+      <div class="modal-calibracao-card" role="dialog" aria-modal="true" aria-labelledby="titulo-calibracao">
+        <div class="modal-calibracao-topo">
+          <div>
+            <p class="etiqueta">calibracao obrigatoria</p>
+            <h2 id="titulo-calibracao">Ajude o Tennis X-Ray a entender este video</h2>
+            <p id="instrucao-calibracao" class="texto-explicativo">
+              Clique nos pontos solicitados diretamente sobre o frame real do video.
+            </p>
+          </div>
+          <button id="botao-fechar-calibracao" class="botao secundario" type="button">Fechar</button>
+        </div>
+
+        <div class="calibracao-grid">
+          <div class="calibracao-palco">
+            <video id="video-calibracao" class="video-calibracao-fonte" playsinline muted preload="auto"></video>
+            <canvas id="canvas-calibracao" class="canvas-calibracao" width="960" height="540"></canvas>
+          </div>
+
+          <aside class="calibracao-sidebar">
+            <div class="calibracao-box">
+              <span class="rotulo-fato">Etapa atual</span>
+              <strong id="alvo-calibracao">Aguardando video</strong>
+              <p id="progresso-calibracao" class="texto-status">Selecione um video para iniciar.</p>
+            </div>
+
+            <label class="campo campo-compacto">
+              <span>Quantos jogadores aparecem na quadra?</span>
+              <select id="qtd-jogadores-calibracao">
+                <option value="1">1 jogador</option>
+                <option value="2" selected>2 jogadores</option>
+              </select>
+            </label>
+
+            <label class="campo campo-compacto">
+              <span>Frame usado para a marcacao</span>
+              <input id="range-tempo-calibracao" type="range" min="0" max="0" value="0" step="0.01" />
+            </label>
+            <p id="tempo-calibracao" class="texto-status">0,00s</p>
+
+            <label class="campo campo-compacto">
+              <span>Zoom para marcar com precisao</span>
+              <input id="range-zoom-calibracao" type="range" min="1" max="5" value="1" step="0.1" />
+            </label>
+            <p id="zoom-calibracao" class="texto-status">Zoom 1,0x. Arraste a imagem para reposicionar.</p>
+
+            <div class="controles-zoom-calibracao">
+              <button id="botao-zoom-menos-calibracao" class="botao secundario" type="button">- Zoom</button>
+              <button id="botao-zoom-mais-calibracao" class="botao secundario" type="button">+ Zoom</button>
+              <button id="botao-reset-zoom-calibracao" class="botao secundario" type="button">Reset</button>
+            </div>
+
+            <div class="controles-saque-calibracao" aria-label="Marcacoes especiais do saque">
+              <button id="botao-contato-raquete-calibracao" class="botao secundario" type="button" disabled>Ponto de contato com a raquete</button>
+              <button id="botao-projecao-contato-calibracao" class="botao secundario" type="button" disabled>Projecao no chao do contato</button>
+              <button id="botao-primeiro-toque-calibracao" class="botao secundario" type="button" disabled>Primeiro toque do saque na quadra</button>
+              <button id="botao-calcular-velocidade-saque" class="botao primario" type="button" disabled>Calcular velocidade</button>
+              <div id="resultado-velocidade-saque" class="resultado-saque">
+                Marque contato, projecao no chao e primeiro toque para calcular.
+              </div>
+            </div>
+
+            <div class="botoes-calibracao">
+              <button id="botao-voltar-calibracao" class="botao secundario" type="button">Voltar</button>
+              <button id="botao-desfazer-calibracao" class="botao secundario" type="button">Desfazer ponto</button>
+              <button id="botao-pular-ponto-quadra" class="botao secundario" type="button">Pular ponto da quadra</button>
+              <button id="botao-proximo-calibracao" class="botao secundario" type="button">Proxima etapa</button>
+              <button id="botao-finalizar-calibracao" class="botao primario" type="button" disabled>Usar calibracao</button>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
   </body>
 </html>
 

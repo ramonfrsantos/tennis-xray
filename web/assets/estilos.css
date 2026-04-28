@@ -218,6 +218,31 @@ h2 {
   min-height: 650px;
 }
 
+.video-upload-card {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+  align-items: center;
+  margin-bottom: 18px;
+  padding: 16px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.player-video {
+  width: 100%;
+  max-height: 720px;
+  border-radius: 18px;
+  background: #020912;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: block;
+}
+
+.oculto {
+  display: none;
+}
+
 #svg-video,
 #svg-mini,
 #svg-linha-tempo {
@@ -359,7 +384,9 @@ h2 {
 }
 
 input[type="file"],
-textarea {
+textarea,
+select,
+input[type="range"] {
   width: 100%;
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -378,6 +405,144 @@ textarea {
 .legenda-linha {
   margin: 0;
   font-size: 0.9rem;
+}
+
+.modal-calibracao {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: rgba(2, 8, 13, 0.78);
+  backdrop-filter: blur(16px);
+}
+
+.modal-calibracao.oculto {
+  display: none;
+}
+
+.modal-calibracao-card {
+  width: min(1320px, 100%);
+  max-height: min(92vh, 980px);
+  overflow: auto;
+  border-radius: 34px;
+  border: 1px solid rgba(120, 213, 255, 0.22);
+  background:
+    radial-gradient(circle at top left, rgba(99, 245, 194, 0.18), transparent 34%),
+    linear-gradient(145deg, rgba(9, 25, 38, 0.98), rgba(4, 14, 22, 0.98));
+  box-shadow: 0 34px 90px rgba(0, 0, 0, 0.48);
+  padding: 24px;
+}
+
+.modal-calibracao-topo {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: start;
+  margin-bottom: 22px;
+}
+
+.calibracao-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  gap: 22px;
+}
+
+.calibracao-palco {
+  position: relative;
+  overflow: hidden;
+  border-radius: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #020910;
+}
+
+.video-calibracao-fonte {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  opacity: 0;
+  pointer-events: none;
+  inset: 0;
+}
+
+.canvas-calibracao {
+  display: block;
+  width: 100%;
+  height: auto;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+.calibracao-sidebar {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+
+.calibracao-box {
+  border-radius: 22px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.calibracao-box strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 1.08rem;
+}
+
+.campo-compacto {
+  padding: 14px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.botoes-calibracao {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.controles-zoom-calibracao {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.controles-saque-calibracao {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.controles-zoom-calibracao .botao {
+  padding-inline: 12px;
+}
+
+.botoes-calibracao .botao {
+  flex: 1 1 142px;
+}
+
+.botao.ativo {
+  border-color: rgba(255, 232, 93, 0.75);
+  background: rgba(255, 232, 93, 0.16);
+  color: #ffe85d;
+}
+
+.botao.preenchido:not(.ativo) {
+  border-color: rgba(180, 255, 103, 0.42);
+  color: #dfff9e;
+}
+
+.botao:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+  transform: none;
+  box-shadow: none;
 }
 
 @keyframes flutuar {
@@ -408,6 +573,18 @@ textarea {
   .grade-metricas {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .video-upload-card {
+    grid-template-columns: 1fr;
+  }
+
+  .calibracao-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .modal-calibracao-topo {
+    flex-direction: column;
+  }
 }
 
 @media (max-width: 720px) {
@@ -422,6 +599,388 @@ textarea {
 
   .lista-fatos,
   .grade-metricas {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Minimal workflow layout: keep the calibration/upload path visible and
+   move secondary diagnostic panels out of the daily working view. */
+body {
+  background:
+    radial-gradient(circle at 12% -10%, rgba(86, 211, 255, 0.16), transparent 32%),
+    linear-gradient(180deg, #07131f 0%, #081622 100%);
+  padding: 22px;
+}
+
+.aura,
+.acoes-topo,
+.bloco-camadas,
+.coluna-lateral .painel:nth-of-type(2),
+.coluna-lateral .painel:nth-of-type(3),
+.painel-tempo,
+#form-anotacao {
+  display: none !important;
+}
+
+.topo {
+  max-width: 1420px;
+  margin: 0 auto 18px;
+  align-items: start;
+}
+
+.bloco-titulo {
+  max-width: 760px;
+}
+
+.bloco-titulo .etiqueta {
+  margin-bottom: 8px;
+}
+
+h1 {
+  font-family: var(--fonte-base);
+  font-size: clamp(1.85rem, 3vw, 3rem);
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+}
+
+h2 {
+  font-family: var(--fonte-base);
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+}
+
+.subtitulo {
+  max-width: 640px;
+  margin-top: 10px;
+  font-size: 0.96rem;
+}
+
+.grade-principal {
+  max-width: 1420px;
+  margin: 0 auto;
+  grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.55fr);
+  grid-template-areas:
+    "entrada entrada"
+    "video sessao";
+  gap: 18px;
+}
+
+.painel {
+  border-radius: 22px;
+  padding: 18px;
+  box-shadow: 0 18px 52px rgba(3, 8, 14, 0.32);
+  background: rgba(10, 25, 38, 0.78);
+}
+
+.painel::before {
+  opacity: 0.55;
+}
+
+.painel-video {
+  grid-area: video;
+  min-height: auto;
+}
+
+.coluna-lateral {
+  grid-area: sessao;
+  display: block;
+}
+
+.painel-analises {
+  grid-area: entrada;
+  grid-template-columns: minmax(320px, 0.72fr) minmax(0, 1.28fr);
+  gap: 18px;
+}
+
+.bloco-operacao {
+  order: -1;
+}
+
+.cabecalho-painel {
+  margin-bottom: 14px;
+}
+
+.cabecalho-painel .etiqueta,
+.rotulo-fato,
+.hud-rotulo {
+  letter-spacing: 0.12em;
+  font-size: 0.68rem;
+}
+
+.status-cluster {
+  gap: 8px;
+}
+
+.selo {
+  padding: 7px 10px;
+  font-size: 0.76rem;
+}
+
+.video-wrap {
+  min-height: 0;
+  border-radius: 18px;
+  background: #06111b;
+}
+
+.video-upload-card {
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+}
+
+.video-upload-card > div {
+  display: none;
+}
+
+.player-video {
+  max-height: 70vh;
+  border-radius: 18px;
+}
+
+.hud {
+  left: 14px;
+  right: 14px;
+  bottom: 14px;
+  grid-template-columns: repeat(3, minmax(0, max-content));
+  justify-content: start;
+}
+
+.hud-item {
+  min-width: 132px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(3, 10, 17, 0.76);
+}
+
+.lista-fatos {
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.lista-fatos > div {
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.texto-explicativo {
+  line-height: 1.48;
+}
+
+.grade-metricas {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.cartao-metrica {
+  border-radius: 16px;
+  padding: 14px;
+}
+
+.cartao-metrica .valor {
+  font-size: 1.35rem;
+  margin: 8px 0 4px;
+}
+
+.cartao-metrica .descricao {
+  font-size: 0.84rem;
+}
+
+.formulario {
+  padding: 14px;
+  border-radius: 16px;
+  gap: 12px;
+}
+
+input[type="file"],
+textarea,
+select,
+input[type="range"] {
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+.botao {
+  padding: 11px 16px;
+}
+
+.modal-calibracao-card {
+  border-radius: 26px;
+}
+
+@media (max-width: 1180px) {
+  .grade-principal {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "entrada"
+      "video"
+      "sessao";
+  }
+
+  .painel-analises,
+  .grade-metricas {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  body {
+    padding: 14px;
+  }
+
+  .painel-analises,
+  .grade-metricas {
+    grid-template-columns: 1fr;
+  }
+
+  .hud {
+    position: static;
+    padding: 12px 0 0;
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Focus mode: the application is primarily an upload/calibration tool now.
+   Keep demo visuals available for JS state, but stop letting them dominate the UI. */
+.subtitulo,
+#observacao-sessao,
+.cartao-metrica .descricao {
+  display: none !important;
+}
+
+.grade-principal {
+  grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.45fr);
+  gap: 14px;
+}
+
+.painel {
+  padding: 16px;
+}
+
+.painel-video {
+  padding: 14px;
+}
+
+.painel-video .cabecalho-painel {
+  margin-bottom: 10px;
+}
+
+.painel-video .cabecalho-painel h2,
+.bloco-metricas .cabecalho-painel h2,
+.bloco-operacao .cabecalho-painel h2 {
+  font-size: 0.98rem;
+}
+
+.video-wrap:not(.oculto) {
+  min-height: 88px;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  border: 1px dashed rgba(154, 187, 204, 0.2);
+  background:
+    linear-gradient(135deg, rgba(86, 211, 255, 0.08), rgba(180, 255, 103, 0.05)),
+    rgba(5, 15, 24, 0.78);
+}
+
+.video-wrap:not(.oculto)::before {
+  content: "Envie e calibre um video para ver a analise aqui";
+  color: var(--texto-suave);
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.video-wrap:not(.oculto) #svg-video,
+.video-wrap:not(.oculto) .hud {
+  display: none !important;
+}
+
+.video-upload-card:not(.oculto) {
+  display: block;
+}
+
+.player-video {
+  max-height: 62vh;
+  background: #020910;
+}
+
+.painel-analises {
+  grid-template-columns: minmax(280px, 0.62fr) minmax(0, 1.38fr);
+}
+
+.grade-metricas {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.cartao-metrica {
+  min-height: 92px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.cartao-metrica .valor {
+  margin: 7px 0 0;
+  font-size: clamp(1.12rem, 2vw, 1.45rem);
+  line-height: 1.05;
+}
+
+.cartao-metrica small {
+  color: var(--texto-suave);
+  font-size: 0.76rem;
+  font-weight: 700;
+  opacity: 0.82;
+}
+
+.resultado-saque {
+  border-radius: 14px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(2, 9, 16, 0.45);
+  color: var(--texto-suave);
+  font-size: 0.86rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.resultado-saque-ok {
+  border-color: rgba(180, 255, 103, 0.42);
+  color: #dfff9e;
+  background: rgba(96, 156, 46, 0.12);
+}
+
+.resultado-saque-erro {
+  border-color: rgba(255, 113, 159, 0.42);
+  color: #ffc1d4;
+  background: rgba(255, 113, 159, 0.1);
+}
+
+.lista-fatos {
+  gap: 8px;
+}
+
+.lista-fatos > div {
+  padding: 10px;
+}
+
+.formulario {
+  padding: 12px;
+}
+
+#status-upload {
+  margin: 0;
+  font-size: 0.84rem;
+}
+
+@media (max-width: 1180px) {
+  .grade-principal {
+    grid-template-columns: 1fr;
+  }
+
+  .painel-analises {
     grid-template-columns: 1fr;
   }
 }
