@@ -936,6 +936,10 @@ input[type="range"] {
 }
 
 .resultado-saque {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   border-radius: 14px;
   padding: 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -944,6 +948,29 @@ input[type="range"] {
   font-size: 0.86rem;
   font-weight: 800;
   line-height: 1.35;
+}
+
+.botao-download-saque {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(180, 255, 103, 0.45);
+  border-radius: 999px;
+  background: rgba(180, 255, 103, 0.14);
+  color: #dfff9e;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.botao-download-saque:hover {
+  transform: translateY(-1px);
+}
+
+.botao-download-saque:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  transform: none;
 }
 
 .resultado-saque-ok {

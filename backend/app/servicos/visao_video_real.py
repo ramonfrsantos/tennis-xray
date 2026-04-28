@@ -175,16 +175,30 @@ def analisar_video_real(
     altura_original = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
     duracao_s = total_frames / fps_original if total_frames > 0 else 0.0
     tem_calibracao_bola = _tem_calibracao_bola(calibracao)
+    modo_download_saque = _modo_download_saque(calibracao)
+    ocultar_bola_render = _ocultar_bola_no_render(calibracao)
+    transformacao_video_para_quadra = _transformacao_video_para_quadra(calibracao)
+    velocidade_saque = _calcular_velocidade_saque(calibracao, transformacao_video_para_quadra)
 
-    target_fps = _float_env("TENNIS_XRAY_ANALYSIS_FPS", min(fps_original, 30.0) if tem_calibracao_bola else 24.0)
-    max_frames = _int_env("TENNIS_XRAY_MAX_ANALYSIS_FRAMES", 1800 if tem_calibracao_bola else 720)
+    target_fps = (
+        _float_env("TENNIS_XRAY_SERVE_DOWNLOAD_FPS", min(fps_original, 24.0))
+        if modo_download_saque
+        else _float_env("TENNIS_XRAY_ANALYSIS_FPS", min(fps_original, 30.0) if tem_calibracao_bola else 24.0)
+    )
+    max_frames = (
+        _int_env("TENNIS_XRAY_SERVE_DOWNLOAD_MAX_FRAMES", 180)
+        if modo_download_saque
+        else _int_env("TENNIS_XRAY_MAX_ANALYSIS_FRAMES", 1800 if tem_calibracao_bola else 720)
+    )
     # 0 means "keep the uploaded video's original width". The previous 960px
     # default made the annotated video visibly softer and harder to audit.
     output_width = _int_env("TENNIS_XRAY_ANALYSIS_WIDTH", 0)
     min_output_width = _int_env("TENNIS_XRAY_MIN_ANALYSIS_WIDTH", 0)
     process_full = os.getenv("TENNIS_XRAY_PROCESS_FULL_VIDEO", "0") == "1"
 
-    if tem_calibracao_bola and not process_full:
+    if modo_download_saque and velocidade_saque is not None:
+        indices = _selecionar_indices_download_saque(total_frames, fps_original, target_fps, max_frames, velocidade_saque)
+    elif tem_calibracao_bola and not process_full:
         indices = _selecionar_indices_intervalo_bola(total_frames, fps_original, target_fps, max_frames, calibracao)
     else:
         indices = _selecionar_indices(total_frames, fps_original, target_fps, max_frames, process_full)
@@ -210,8 +224,6 @@ def analisar_video_real(
     frame_anterior: np.ndarray | None = None
     anchors_bola: list[BallAnchor] | None = None
     tolerancia_anchor_bola_s = max(0.055, 0.72 / max(target_fps, 1.0))
-    transformacao_video_para_quadra = _transformacao_video_para_quadra(calibracao)
-    velocidade_saque = _calcular_velocidade_saque(calibracao, transformacao_video_para_quadra)
     janela_saque_saida = _janela_overlay_saque_saida(velocidade_saque, indices, fps_original, target_fps)
 
     for posicao_saida, frame_idx in enumerate(indices):
@@ -232,7 +244,7 @@ def analisar_video_real(
         if output_size is None:
             output_size = _calcular_tamanho_saida(frame, output_width, min_output_width)
             writer = _abrir_writer(video_temporario, target_fps, output_size)
-            anchors_bola = _anchors_bola_calibracao(calibracao, frame.shape)
+            anchors_bola = [] if ocultar_bola_render else _anchors_bola_calibracao(calibracao, frame.shape)
 
         players_detectados = _detectar_jogadores(frame, modelo_yolo)
         players_escopo = _filtrar_jogadores_escopo_quadra(players_detectados, calibracao, frame.shape)
@@ -246,34 +258,39 @@ def analisar_video_real(
 
         tempo_s = (frame_idx / fps_original) if fps_original > 0 else posicao_saida / target_fps
         tempo_saida_s = posicao_saida / max(target_fps, 1.0)
-        prior_bola = _prior_bola_calibracao(anchors_bola or [], tempo_s, frame.shape)
-        if ultimo_bola_frame_idx is not None:
-            gap_frames = abs(int(frame_idx) - ultimo_bola_frame_idx)
-            if gap_frames > max(4, int(round(fps_original * 0.35))):
-                ultimo_bola = None
-                ball_track.clear()
-        bola = _bola_anchor_exata(anchors_bola or [], tempo_s, frame.shape, tolerancia_anchor_bola_s)
-        if bola is None:
-            if anchors_bola and prior_bola is None:
-                bola = None
-            else:
-                bola = _detectar_bola(frame, ultimo_bola, frame_anterior, players_validos, ball_track, prior_bola)
-            if bola is None and prior_bola is not None and _prior_preenchivel(prior_bola):
-                bola = _bola_estimativa_prior(prior_bola, frame.shape)
-        if bola is not None and not _validar_bola_temporal(bola, ball_track, frame.shape, prior_bola):
-            bola = _bola_estimativa_prior(prior_bola, frame.shape) if prior_bola is not None and _prior_preenchivel(prior_bola) else None
-        if bola is not None:
-            bola = _suavizar_bola_com_prior(bola, prior_bola)
-        if bola:
+        bola = None
+        if ocultar_bola_render:
+            ultimo_bola = None
+            ball_track.clear()
+        else:
+            prior_bola = _prior_bola_calibracao(anchors_bola or [], tempo_s, frame.shape)
             if ultimo_bola_frame_idx is not None:
                 gap_frames = abs(int(frame_idx) - ultimo_bola_frame_idx)
                 if gap_frames > max(4, int(round(fps_original * 0.35))):
+                    ultimo_bola = None
                     ball_track.clear()
-            ultimo_bola = bola
-            ultimo_bola_frame_idx = int(frame_idx)
-            ball_samples.append((int(frame_idx), bola.x, bola.y))
-            ball_track.append((int(bola.x), int(bola.y)))
-            ball_track = ball_track[-18:]
+            bola = _bola_anchor_exata(anchors_bola or [], tempo_s, frame.shape, tolerancia_anchor_bola_s)
+            if bola is None:
+                if anchors_bola and prior_bola is None:
+                    bola = None
+                else:
+                    bola = _detectar_bola(frame, ultimo_bola, frame_anterior, players_validos, ball_track, prior_bola)
+                if bola is None and prior_bola is not None and _prior_preenchivel(prior_bola):
+                    bola = _bola_estimativa_prior(prior_bola, frame.shape)
+            if bola is not None and not _validar_bola_temporal(bola, ball_track, frame.shape, prior_bola):
+                bola = _bola_estimativa_prior(prior_bola, frame.shape) if prior_bola is not None and _prior_preenchivel(prior_bola) else None
+            if bola is not None:
+                bola = _suavizar_bola_com_prior(bola, prior_bola)
+            if bola:
+                if ultimo_bola_frame_idx is not None:
+                    gap_frames = abs(int(frame_idx) - ultimo_bola_frame_idx)
+                    if gap_frames > max(4, int(round(fps_original * 0.35))):
+                        ball_track.clear()
+                ultimo_bola = bola
+                ultimo_bola_frame_idx = int(frame_idx)
+                ball_samples.append((int(frame_idx), bola.x, bola.y))
+                ball_track.append((int(bola.x), int(bola.y)))
+                ball_track = ball_track[-18:]
 
         quadro = _montar_quadro(
             frame_idx=int(frame_idx),
@@ -378,12 +395,13 @@ def analisar_video_real(
             "largura_saida": output_size[0] if output_size else largura_original,
             "altura_saida": output_size[1] if output_size else altura_original,
             "qualidade_h264_crf": _int_env("TENNIS_XRAY_H264_CRF", 18),
-            "amostragem": "trecho_calibrado_bola" if tem_calibracao_bola and not process_full else ("completa" if process_full else "scan_distribuido"),
+            "amostragem": "trecho_saque_download" if modo_download_saque else ("trecho_calibrado_bola" if tem_calibracao_bola and not process_full else ("completa" if process_full else "scan_distribuido")),
             "codec_saida": codec_saida,
             "calibracao_usuario": bool(calibracao),
             "pontos_quadra_calibrados": len((calibracao or {}).get("court_points", {}) or {}),
             "pontos_quadra_pulados": len((calibracao or {}).get("court_missing", {}) or {}),
             "marcacoes_bola_calibradas": len((calibracao or {}).get("ball_marks", []) or []),
+            "bola_oculta_render": ocultar_bola_render,
             "velocidade_saque_status": _status_velocidade_saque(calibracao, velocidade_saque, janela_saque_saida),
             "velocidade_saque": _serializar_velocidade_saque(velocidade_saque, janela_saque_saida),
             "medidas_quadra_m": {
@@ -532,6 +550,34 @@ def _selecionar_indices_intervalo_bola(
     inicio = max(0, int(round(inicio_s * max(fps_original, 1.0))))
     fim = min(total_frames - 1, int(round(fim_s * max(fps_original, 1.0))))
     stride_fps = max(1, int(round(fps_original / max(target_fps, 1))))
+    indices = list(range(inicio, fim + 1, stride_fps))
+    if len(indices) > max_frames:
+        indices = sorted(set(np.linspace(inicio, fim, max_frames, dtype=int).tolist()))
+    return indices
+
+
+def _selecionar_indices_download_saque(
+    total_frames: int,
+    fps_original: float,
+    target_fps: float,
+    max_frames: int,
+    velocidade_saque: ServeSpeedEvent,
+) -> list[int]:
+    if total_frames <= 0:
+        return []
+
+    pre_s = _float_env("TENNIS_XRAY_SERVE_DOWNLOAD_PRE_S", 0.55)
+    post_s = _float_env("TENNIS_XRAY_SERVE_DOWNLOAD_POST_S", 0.65)
+    inicio_s = max(0.0, velocidade_saque.contato_s - pre_s)
+    fim_s = max(
+        inicio_s + SERVE_SPEED_OVERLAY_DURATION_S + 0.25,
+        velocidade_saque.primeiro_toque_s + post_s,
+        velocidade_saque.contato_s + 1.05,
+    )
+    fps_ref = max(fps_original, 1.0)
+    inicio = max(0, int(round(inicio_s * fps_ref)))
+    fim = min(total_frames - 1, int(round(fim_s * fps_ref)))
+    stride_fps = max(1, int(round(fps_ref / max(target_fps, 1.0))))
     indices = list(range(inicio, fim + 1, stride_fps))
     if len(indices) > max_frames:
         indices = sorted(set(np.linspace(inicio, fim, max_frames, dtype=int).tolist()))
@@ -1033,6 +1079,34 @@ def _tem_calibracao_bola(calibracao: dict | None) -> bool:
         return False
     marks = calibracao.get("ball_marks")
     return isinstance(marks, list) and len(marks) >= 2
+
+
+def _modo_download_saque(calibracao: dict | None) -> bool:
+    render_options = calibracao.get("render_options") if isinstance(calibracao, dict) else None
+    return isinstance(render_options, dict) and str(render_options.get("modo") or "") == "download_saque"
+
+
+def _ocultar_bola_no_render(calibracao: dict | None) -> bool:
+    if not isinstance(calibracao, dict):
+        return False
+    render_options = calibracao.get("render_options")
+    if not isinstance(render_options, dict) or not render_options.get("ocultar_bola_se_apenas_saque"):
+        return False
+    return not _tem_marcacao_trajetoria_bola(calibracao)
+
+
+def _tem_marcacao_trajetoria_bola(calibracao: dict | None) -> bool:
+    marks = calibracao.get("ball_marks") if isinstance(calibracao, dict) else None
+    if not isinstance(marks, list):
+        return False
+    roles_saque = {"serve_contact", "serve_contact_ground", "serve_court_bounce"}
+    for mark in marks:
+        if not isinstance(mark, dict):
+            continue
+        role = str(mark.get("role") or mark.get("event") or mark.get("type") or "")
+        if role not in roles_saque:
+            return True
+    return False
 
 
 def _anchors_bola_calibracao(

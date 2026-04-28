@@ -48,6 +48,8 @@ const elementos = {
   botaoPrimeiroToqueCalibracao: document.querySelector("#botao-primeiro-toque-calibracao"),
   botaoCalcularVelocidadeSaque: document.querySelector("#botao-calcular-velocidade-saque"),
   resultadoVelocidadeSaque: document.querySelector("#resultado-velocidade-saque"),
+  textoResultadoVelocidadeSaque: document.querySelector("#texto-resultado-velocidade-saque"),
+  botaoDownloadVideoSaque: document.querySelector("#botao-download-video-saque"),
   botaoFecharCalibracao: document.querySelector("#botao-fechar-calibracao"),
   botaoVoltarCalibracao: document.querySelector("#botao-voltar-calibracao"),
   botaoDesfazerCalibracao: document.querySelector("#botao-desfazer-calibracao"),
@@ -91,6 +93,10 @@ const estado = {
   tipoEspecialBola: null,
   previewVelocidadeSaque: null,
   previewVelocidadeSaqueErro: "",
+  downloadSaqueEmAndamento: false,
+  downloadSaqueJobId: null,
+  downloadSaqueUrl: null,
+  downloadSaqueErro: "",
 };
 
 const PONTOS_QUADRA_CALIBRACAO = [
@@ -1296,6 +1302,27 @@ function saqueEspecialCompleto() {
 function invalidarPreviewVelocidadeSaque() {
   estado.previewVelocidadeSaque = null;
   estado.previewVelocidadeSaqueErro = "";
+  estado.downloadSaqueEmAndamento = false;
+  estado.downloadSaqueJobId = null;
+  estado.downloadSaqueUrl = null;
+  estado.downloadSaqueErro = "";
+}
+
+function definirResultadoVelocidadeSaque(texto, tipo = "", permitirDownload = false) {
+  elementos.textoResultadoVelocidadeSaque.textContent = texto;
+  elementos.resultadoVelocidadeSaque.classList.toggle("resultado-saque-ok", tipo === "ok");
+  elementos.resultadoVelocidadeSaque.classList.toggle("resultado-saque-erro", tipo === "erro");
+  const podeBaixar = permitirDownload && Boolean(estado.previewVelocidadeSaque) && Boolean(estado.downloadSaqueUrl) && !estado.downloadSaqueEmAndamento;
+  elementos.botaoDownloadVideoSaque.classList.toggle("oculto", !podeBaixar);
+  elementos.botaoDownloadVideoSaque.disabled = !podeBaixar;
+}
+
+function textoVelocidadeSaquePreview() {
+  const info = estado.previewVelocidadeSaque;
+  if (!info) {
+    return "";
+  }
+  return `${formatarNumero(info.velocidade_kmh ?? 0, " km/h")} | voo ${formatarNumero(info.tempo_voo_s ?? 0, " s")} | 3D ${formatarNumero(info.distancia_m ?? 0, " m")} | conf ${formatarPercentual(info.confianca ?? 0)}`;
 }
 
 function atualizarResultadoVelocidadeSaque() {
@@ -1303,30 +1330,30 @@ function atualizarResultadoVelocidadeSaque() {
   const pronto = quadraOk && saqueEspecialCompleto();
   elementos.botaoCalcularVelocidadeSaque.disabled = !pronto;
   if (!quadraOk) {
-    elementos.resultadoVelocidadeSaque.textContent = "Conclua as medicoes da quadra para liberar o calculo do saque.";
-    elementos.resultadoVelocidadeSaque.classList.remove("resultado-saque-ok", "resultado-saque-erro");
+    definirResultadoVelocidadeSaque("Conclua as medicoes da quadra para liberar o calculo do saque.");
     return;
   }
   if (!pronto) {
-    elementos.resultadoVelocidadeSaque.textContent = "Marque contato, projecao no chao e primeiro toque para calcular.";
-    elementos.resultadoVelocidadeSaque.classList.remove("resultado-saque-ok", "resultado-saque-erro");
+    definirResultadoVelocidadeSaque("Marque contato, projecao no chao e primeiro toque para calcular.");
     return;
   }
   if (estado.previewVelocidadeSaque) {
-    const info = estado.previewVelocidadeSaque;
-    elementos.resultadoVelocidadeSaque.textContent = `${formatarNumero(info.velocidade_kmh ?? 0, " km/h")} | voo ${formatarNumero(info.tempo_voo_s ?? 0, " s")} | 3D ${formatarNumero(info.distancia_m ?? 0, " m")} | conf ${formatarPercentual(info.confianca ?? 0)}`;
-    elementos.resultadoVelocidadeSaque.classList.add("resultado-saque-ok");
-    elementos.resultadoVelocidadeSaque.classList.remove("resultado-saque-erro");
+    let texto = textoVelocidadeSaquePreview();
+    if (estado.downloadSaqueEmAndamento) {
+      texto += " | renderizando video...";
+    } else if (estado.downloadSaqueUrl) {
+      texto += " | video pronto";
+    } else if (estado.downloadSaqueErro) {
+      texto += " | video ainda nao gerado";
+    }
+    definirResultadoVelocidadeSaque(texto, "ok", true);
     return;
   }
   if (estado.previewVelocidadeSaqueErro) {
-    elementos.resultadoVelocidadeSaque.textContent = estado.previewVelocidadeSaqueErro;
-    elementos.resultadoVelocidadeSaque.classList.add("resultado-saque-erro");
-    elementos.resultadoVelocidadeSaque.classList.remove("resultado-saque-ok");
+    definirResultadoVelocidadeSaque(estado.previewVelocidadeSaqueErro, "erro");
     return;
   }
-  elementos.resultadoVelocidadeSaque.textContent = "Pronto para calcular sem renderizar o video.";
-  elementos.resultadoVelocidadeSaque.classList.remove("resultado-saque-ok", "resultado-saque-erro");
+  definirResultadoVelocidadeSaque("Pronto para calcular sem renderizar o video.");
 }
 
 async function calcularVelocidadeSaquePreview() {
@@ -1343,8 +1370,7 @@ async function calcularVelocidadeSaquePreview() {
 
   atualizarParametrosSaqueCalibracao();
   elementos.botaoCalcularVelocidadeSaque.disabled = true;
-  elementos.resultadoVelocidadeSaque.textContent = "Calculando velocidade...";
-  elementos.resultadoVelocidadeSaque.classList.remove("resultado-saque-ok", "resultado-saque-erro");
+  definirResultadoVelocidadeSaque("Calculando velocidade...");
 
   const resposta = await fetch("/api/videos/calibracao/velocidade-saque", {
     method: "POST",
@@ -1362,6 +1388,8 @@ async function calcularVelocidadeSaquePreview() {
   } else {
     estado.previewVelocidadeSaque = dados.velocidade_saque;
     estado.previewVelocidadeSaqueErro = "";
+    estado.downloadSaqueUrl = null;
+    estado.downloadSaqueErro = "";
     estado.metadataAnaliseReal = {
       ...(estado.metadataAnaliseReal ?? {}),
       velocidade_saque: dados.velocidade_saque,
@@ -1370,7 +1398,138 @@ async function calcularVelocidadeSaquePreview() {
     if (estado.dados?.metricas) {
       renderizarMetricas(estado.dados.metricas, estado.metadataAnaliseReal);
     }
+    iniciarRenderizacaoSaqueBackground().catch((erro) => {
+      estado.downloadSaqueEmAndamento = false;
+      estado.downloadSaqueErro = erro.message ?? "Falha ao renderizar video de velocidade.";
+      atualizarResultadoVelocidadeSaque();
+      console.error(erro);
+    });
   }
+  atualizarResultadoVelocidadeSaque();
+}
+
+function calibracaoParaRenderizacaoSaque() {
+  const copia = JSON.parse(JSON.stringify(estado.calibracao ?? {}));
+  copia.render_options = {
+    ...(copia.render_options ?? {}),
+    modo: "download_saque",
+    ocultar_bola_se_apenas_saque: true,
+    renderizar_janela_saque: true,
+  };
+  return copia;
+}
+
+function nomeDownloadSaque() {
+  const nomeBase = estado.calibracao?.video?.file_name || estado.arquivoUploadSelecionado?.name || "saque";
+  const limpo = nomeBase.replace(/\.[^.]+$/, "").replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80) || "saque";
+  return `${limpo}_velocidade_saque.mp4`;
+}
+
+function aguardar(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function aguardarJobVideoDownload(jobId) {
+  while (true) {
+    const resposta = await fetch(`/api/videos/jobs/${jobId}`);
+    const job = await resposta.json();
+    if (!resposta.ok) {
+      throw new Error(job.detail ?? "Job de renderizacao nao encontrado.");
+    }
+    const progresso = Number(job.progresso ?? 0);
+    if (estado.downloadSaqueJobId !== jobId) {
+      return null;
+    }
+    const textoBase = textoVelocidadeSaquePreview() || "Velocidade calculada";
+    definirResultadoVelocidadeSaque(`${textoBase} | renderizando ${formatarNumero(progresso, "%")}`, "ok");
+    if (job.status === "concluido") {
+      if (!job.url_video_analisado) {
+        throw new Error("O video foi processado, mas a API nao retornou o arquivo renderizado.");
+      }
+      return job;
+    }
+    if (job.status === "falhou" || job.status === "cancelado") {
+      throw new Error(job.mensagem ?? "Renderizacao encerrada antes do download.");
+    }
+    await aguardar(1400);
+  }
+}
+
+async function baixarVideoRenderizado(url, nomeArquivo) {
+  const resposta = await fetch(`${url}?download=${Date.now()}`);
+  if (!resposta.ok) {
+    throw new Error("Nao foi possivel baixar o video renderizado.");
+  }
+  const blob = await resposta.blob();
+  const objetoUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objetoUrl;
+  link.download = nomeArquivo;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objetoUrl), 2000);
+}
+
+async function iniciarRenderizacaoSaqueBackground() {
+  if (!estado.previewVelocidadeSaque || !estado.calibracao) {
+    estado.downloadSaqueErro = "Calcule a velocidade antes de renderizar o video.";
+    atualizarResultadoVelocidadeSaque();
+    return;
+  }
+
+  const arquivo = estado.arquivoUploadSelecionado ?? elementos.campoVideo.files?.[0];
+  if (!estado.calibracaoServidorId && !arquivo) {
+    throw new Error("Selecione o video original antes de renderizar o download.");
+  }
+
+  estado.downloadSaqueEmAndamento = true;
+  estado.downloadSaqueUrl = null;
+  estado.downloadSaqueErro = "";
+  elementos.botaoDownloadVideoSaque.disabled = true;
+  elementos.botaoDownloadVideoSaque.classList.add("oculto");
+  atualizarResultadoVelocidadeSaque();
+
+  const corpo = new FormData();
+  if (estado.calibracaoServidorId) {
+    corpo.append("calibracao_id", estado.calibracaoServidorId);
+  } else {
+    corpo.append("arquivo", arquivo);
+  }
+  corpo.append("calibracao", JSON.stringify(calibracaoParaRenderizacaoSaque()));
+
+  const resposta = await fetch("/api/videos/upload", {
+    method: "POST",
+    body: corpo,
+  });
+  const dados = await resposta.json();
+  if (!resposta.ok) {
+    throw new Error(dados.detail ?? "Falha ao iniciar renderizacao do download.");
+  }
+  if (!dados.job_id) {
+    throw new Error("A API nao retornou um job de renderizacao.");
+  }
+
+  estado.downloadSaqueJobId = dados.job_id;
+  const job = await aguardarJobVideoDownload(dados.job_id);
+  if (!job) {
+    return;
+  }
+  if (estado.downloadSaqueJobId !== dados.job_id) {
+    return;
+  }
+  estado.downloadSaqueUrl = job.url_video_analisado;
+  estado.downloadSaqueEmAndamento = false;
+  atualizarResultadoVelocidadeSaque();
+}
+
+async function baixarVideoSaqueRenderizado() {
+  if (!estado.downloadSaqueUrl) {
+    estado.downloadSaqueErro = "O video ainda esta renderizando. Aguarde o botao de download ser liberado.";
+    atualizarResultadoVelocidadeSaque();
+    return;
+  }
+  await baixarVideoRenderizado(estado.downloadSaqueUrl, nomeDownloadSaque());
   atualizarResultadoVelocidadeSaque();
 }
 
@@ -1838,6 +1997,11 @@ elementos.botaoCalcularVelocidadeSaque.addEventListener("click", () => {
     estado.previewVelocidadeSaque = null;
     estado.previewVelocidadeSaqueErro = erro.message ?? "Falha ao calcular velocidade do saque.";
     atualizarResultadoVelocidadeSaque();
+    console.error(erro);
+  });
+});
+elementos.botaoDownloadVideoSaque.addEventListener("click", () => {
+  baixarVideoSaqueRenderizado().catch((erro) => {
     console.error(erro);
   });
 });
