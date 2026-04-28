@@ -1325,6 +1325,17 @@ function saqueEspecialCompleto() {
   );
 }
 
+function referenciasSaqueFaltantes() {
+  const referencias = [
+    ["serve_contact", "contato"],
+    ["serve_contact_ground", "projecao"],
+    ["serve_court_bounce", "toque"],
+  ];
+  return referencias
+    .filter(([role]) => !marcaBolaPorRole(role))
+    .map(([, label]) => label);
+}
+
 function invalidarPreviewVelocidadeSaque() {
   estado.previewVelocidadeSaque = null;
   estado.previewVelocidadeSaqueErro = "";
@@ -1348,7 +1359,12 @@ function textoVelocidadeSaquePreview() {
   if (!info) {
     return "";
   }
-  return `${formatarNumero(info.velocidade_kmh ?? 0, " km/h")} | voo ${formatarNumero(info.tempo_voo_s ?? 0, " s")} | 3D ${formatarNumero(info.distancia_m ?? 0, " m")} | conf ${formatarPercentual(info.confianca ?? 0)}`;
+  return [
+    `Velocidade: ${formatarNumero(info.velocidade_kmh ?? 0, " km/h")}`,
+    `tempo ate o quique: ${formatarNumero(info.tempo_voo_s ?? 0, " s")}`,
+    `trajeto 3D estimado: ${formatarNumero(info.distancia_m ?? 0, " m")}`,
+    `confianca: ${formatarPercentual(info.confianca ?? 0)}`,
+  ].join(" | ");
 }
 
 function atualizarResultadoVelocidadeSaque() {
@@ -1360,7 +1376,8 @@ function atualizarResultadoVelocidadeSaque() {
     return;
   }
   if (!pronto) {
-    definirResultadoVelocidadeSaque("Marque contato, projecao no chao e primeiro toque para calcular.");
+    const faltantes = referenciasSaqueFaltantes();
+    definirResultadoVelocidadeSaque(`Falta no saque: ${faltantes.join(", ")}.`);
     return;
   }
   if (estado.previewVelocidadeSaque) {
@@ -1578,6 +1595,10 @@ function validarCalibracao() {
   if ((estado.calibracao.ball_marks ?? []).length < MIN_MARCACOES_BOLA) {
     return { ok: false, mensagem: `Marque a bolinha em pelo menos ${MIN_MARCACOES_BOLA} frames diferentes.` };
   }
+  const faltantesSaque = referenciasSaqueFaltantes();
+  if (faltantesSaque.length > 0) {
+    return { ok: false, mensagem: `Falta marcar no saque: ${faltantesSaque.join(", ")}.` };
+  }
   return { ok: true, mensagem: "Calibracao completa." };
 }
 
@@ -1642,6 +1663,9 @@ function atualizarInterfaceCalibracao() {
   elementos.botaoContatoRaqueteCalibracao.classList.toggle("preenchido", Boolean(contatoSaque));
   elementos.botaoProjecaoContatoCalibracao.classList.toggle("preenchido", Boolean(projecaoContatoSaque));
   elementos.botaoPrimeiroToqueCalibracao.classList.toggle("preenchido", Boolean(primeiroToqueSaque));
+  elementos.botaoContatoRaqueteCalibracao.classList.toggle("faltante", saqueLiberado && !contatoSaque);
+  elementos.botaoProjecaoContatoCalibracao.classList.toggle("faltante", saqueLiberado && !projecaoContatoSaque);
+  elementos.botaoPrimeiroToqueCalibracao.classList.toggle("faltante", saqueLiberado && !primeiroToqueSaque);
   atualizarResultadoVelocidadeSaque();
   elementos.botaoFinalizarCalibracao.disabled = !validacao.ok;
 }

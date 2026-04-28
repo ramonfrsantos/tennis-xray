@@ -2094,6 +2094,47 @@ body:not(.tem-analise) h1 {
   min-height: 36px;
   padding: 8px 9px;
   font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+#texto-resultado-velocidade-saque {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.controles-saque-calibracao .botao {
+  position: relative;
+}
+
+.controles-saque-calibracao .botao.preenchido:not(.ativo),
+.controles-saque-calibracao .botao.preenchido:disabled:not(.ativo) {
+  border-color: rgba(15, 118, 110, 0.62) !important;
+  background: rgba(15, 118, 110, 0.14) !important;
+  color: var(--menta) !important;
+  opacity: 1;
+}
+
+.controles-saque-calibracao .botao.preenchido:not(.ativo)::after {
+  content: "✓";
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--menta);
+  color: #fffdf6;
+  font-size: 0.68rem;
+  line-height: 1;
+}
+
+.controles-saque-calibracao .botao.faltante:not(.preenchido):not(.ativo) {
+  border-color: rgba(184, 121, 60, 0.34);
+  background: rgba(184, 121, 60, 0.06);
+  color: #7b5b3c;
 }
 
 .botao-download-saque {

@@ -2132,11 +2132,6 @@ def _desenhar_frame(
         cv2.putText(canvas, label, (x1 + 8, max(17, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.52, color, 2)
         _desenhar_esqueleto_estimado(canvas, (x1, y1, x2, y2), color)
 
-    for atleta_id, color in (("P1", colors[0]), ("P2", colors[1])):
-        pts = [(int(x * sx), int(y * sy)) for x, y in player_tracks.get(atleta_id, [])]
-        for p1, p2 in zip(pts, pts[1:]):
-            cv2.line(canvas, p1, p2, color, 2)
-
     if len(ball_track) > 1:
         pts = [(int(x * sx), int(y * sy)) for x, y in ball_track]
         max_segmento = max(42.0, min(output_size) * 0.13)
