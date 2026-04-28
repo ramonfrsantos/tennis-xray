@@ -49,8 +49,10 @@ COURT_SERVICE_BOTTOM_Y_M = COURT_LENGTH_M - COURT_BASE_TO_T_M
 NET_HEIGHT_CENTER_M = 0.914
 NET_HEIGHT_SIDE_M = 1.07
 TENNIS_BALL_RADIUS_M = 0.0335
-SERVE_SPEED_OVERLAY_DURATION_S = 0.7
-SERVE_RADAR_SPEED_FACTOR = 1.30
+SERVE_SPEED_OVERLAY_DURATION_S = 1.25
+# Recalibrado contra amostra real: 192,1 km/h estimados devem aproximar 204 km/h oficiais.
+# 1.011 * (204 / 192.1) ~= 1.074. A estabilidade temporal vem da quantizacao por frame.
+SERVE_RADAR_SPEED_FACTOR = 1.074
 
 _YOLO_MODEL = None
 _YOLO_LOAD_ATTEMPTED = False
@@ -124,6 +126,8 @@ class ServeSpeedEvent:
     altura_contato_m: float
     altura_primeiro_toque_m: float
     tempo_voo_s: float
+    tempo_voo_bruto_s: float
+    fps_calculo: float
     amostras_usadas: int
     metodo: str
     confianca: float
@@ -178,7 +182,11 @@ def analisar_video_real(
     modo_download_saque = _modo_download_saque(calibracao)
     ocultar_bola_render = _ocultar_bola_no_render(calibracao)
     transformacao_video_para_quadra = _transformacao_video_para_quadra(calibracao)
-    velocidade_saque = _calcular_velocidade_saque(calibracao, transformacao_video_para_quadra)
+    velocidade_saque = _velocidade_saque_travada(calibracao) or _calcular_velocidade_saque(
+        calibracao,
+        transformacao_video_para_quadra,
+        fps_original,
+    )
 
     target_fps = (
         _float_env("TENNIS_XRAY_SERVE_DOWNLOAD_FPS", min(fps_original, 24.0))
@@ -456,6 +464,8 @@ def _serializar_velocidade_saque(
         "altura_contato_m": round(velocidade_saque.altura_contato_m, 2),
         "altura_primeiro_toque_m": round(velocidade_saque.altura_primeiro_toque_m, 2),
         "tempo_voo_s": round(velocidade_saque.tempo_voo_s, 3),
+        "tempo_voo_bruto_s": round(velocidade_saque.tempo_voo_bruto_s, 3),
+        "fps_calculo": round(velocidade_saque.fps_calculo, 3),
         "amostras_usadas": velocidade_saque.amostras_usadas,
         "metodo": velocidade_saque.metodo,
         "altura_modo": "auto_por_projecao_e_escala_local",
@@ -1808,9 +1818,88 @@ def _velocidade_bola_aproximada(pos_quadra: Coordenada, tempo_s: float, quadros:
     return dist_m / dt
 
 
+def _fps_para_calculo_saque(calibracao: dict | None, fps_original: float | None = None) -> float:
+    candidatos = [fps_original]
+    video = (calibracao or {}).get("video", {}) if isinstance((calibracao or {}).get("video"), dict) else {}
+    candidatos.extend([video.get("fps"), (calibracao or {}).get("fps")])
+    for candidato in candidatos:
+        try:
+            fps = float(candidato)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(fps) and fps >= 1.0:
+            return max(1.0, min(240.0, fps))
+    return 30.0
+
+
+def _quantizar_tempo_frame(tempo_s: float, fps: float) -> float:
+    fps_ref = max(1.0, min(240.0, float(fps or 30.0)))
+    return max(0.0, round(max(0.0, tempo_s) * fps_ref) / fps_ref)
+
+
+def _float_dict(data: dict, chave: str, padrao: float = 0.0) -> float:
+    try:
+        valor = float(data.get(chave, padrao))
+    except (TypeError, ValueError):
+        return padrao
+    return valor if math.isfinite(valor) else padrao
+
+
+def _int_dict(data: dict, chave: str, padrao: int = 0) -> int:
+    try:
+        valor = int(float(data.get(chave, padrao)))
+    except (TypeError, ValueError):
+        return padrao
+    return valor
+
+
+def _velocidade_saque_travada(calibracao: dict | None) -> ServeSpeedEvent | None:
+    if not isinstance(calibracao, dict):
+        return None
+    raw = calibracao.get("serve_speed_locked")
+    if not isinstance(raw, dict):
+        serve_metrics = calibracao.get("serve_metrics")
+        raw = serve_metrics.get("locked_speed") if isinstance(serve_metrics, dict) else None
+    if not isinstance(raw, dict):
+        return None
+
+    velocidade_kmh = _float_dict(raw, "velocidade_kmh")
+    if velocidade_kmh <= 0:
+        return None
+    velocidade_ms = _float_dict(raw, "velocidade_ms", velocidade_kmh / 3.6)
+    velocidade_media_voo_kmh = _float_dict(raw, "velocidade_media_voo_kmh", velocidade_kmh)
+    velocidade_media_voo_ms = _float_dict(raw, "velocidade_media_voo_ms", velocidade_media_voo_kmh / 3.6)
+    contato_s = _float_dict(raw, "contato_s")
+    primeiro_toque_s = _float_dict(raw, "primeiro_toque_s", contato_s + _float_dict(raw, "tempo_voo_s"))
+    tempo_voo_s = _float_dict(raw, "tempo_voo_s", max(0.0, primeiro_toque_s - contato_s))
+
+    return ServeSpeedEvent(
+        contato_s=contato_s,
+        primeiro_toque_s=primeiro_toque_s,
+        velocidade_ms=velocidade_ms,
+        velocidade_kmh=velocidade_kmh,
+        velocidade_media_voo_ms=velocidade_media_voo_ms,
+        velocidade_media_voo_kmh=velocidade_media_voo_kmh,
+        fator_radar=_float_dict(raw, "fator_radar", SERVE_RADAR_SPEED_FACTOR),
+        distancia_m=_float_dict(raw, "distancia_m"),
+        distancia_planta_m=_float_dict(raw, "distancia_planta_m"),
+        distancia_reta_3d_m=_float_dict(raw, "distancia_reta_3d_m"),
+        distancia_segmentada_m=_float_dict(raw, "distancia_segmentada_m"),
+        altura_contato_m=_float_dict(raw, "altura_contato_m"),
+        altura_primeiro_toque_m=_float_dict(raw, "altura_primeiro_toque_m", TENNIS_BALL_RADIUS_M),
+        tempo_voo_s=tempo_voo_s,
+        tempo_voo_bruto_s=_float_dict(raw, "tempo_voo_bruto_s", tempo_voo_s),
+        fps_calculo=_float_dict(raw, "fps_calculo", _fps_para_calculo_saque(calibracao)),
+        amostras_usadas=_int_dict(raw, "amostras_usadas", 2),
+        metodo=str(raw.get("metodo") or "preview_travado"),
+        confianca=max(0.0, min(1.0, _float_dict(raw, "confianca", 0.9))),
+    )
+
+
 def _calcular_velocidade_saque(
     calibracao: dict | None,
     transformacao_video_para_quadra: tuple[str, np.ndarray] | None,
+    fps_original: float | None = None,
 ) -> ServeSpeedEvent | None:
     marks = calibracao.get("ball_marks") if isinstance(calibracao, dict) else None
     if not isinstance(marks, list):
@@ -1823,12 +1912,24 @@ def _calcular_velocidade_saque(
         return None
 
     try:
-        contato_s = float(contato.get("time_s"))
-        primeiro_toque_s = float(primeiro_toque.get("time_s"))
+        contato_s_bruto = float(contato.get("time_s"))
+        primeiro_toque_s_bruto = float(primeiro_toque.get("time_s"))
     except (TypeError, ValueError):
         return None
-    if not math.isfinite(contato_s) or not math.isfinite(primeiro_toque_s) or primeiro_toque_s <= contato_s:
+    if (
+        not math.isfinite(contato_s_bruto)
+        or not math.isfinite(primeiro_toque_s_bruto)
+        or primeiro_toque_s_bruto <= contato_s_bruto
+    ):
         return None
+
+    fps_calculo = _fps_para_calculo_saque(calibracao, fps_original)
+    contato_s = _quantizar_tempo_frame(contato_s_bruto, fps_calculo)
+    primeiro_toque_s = _quantizar_tempo_frame(primeiro_toque_s_bruto, fps_calculo)
+    if primeiro_toque_s <= contato_s:
+        frames_voo = max(1, int(round((primeiro_toque_s_bruto - contato_s_bruto) * fps_calculo)))
+        primeiro_toque_s = contato_s + frames_voo / fps_calculo
+    margem_frame_s = 0.51 / max(fps_calculo, 1.0)
 
     contato_xy = _ponto_normalizado_calibracao(projecao_contato) or _ponto_normalizado_calibracao(contato)
     toque_xy = _ponto_normalizado_calibracao(primeiro_toque)
@@ -1854,11 +1955,12 @@ def _calcular_velocidade_saque(
         if not isinstance(mark, dict):
             continue
         try:
-            tempo = float(mark.get("time_s"))
+            tempo = _quantizar_tempo_frame(float(mark.get("time_s")), fps_calculo)
         except (TypeError, ValueError):
             continue
-        if tempo < contato_s or tempo > primeiro_toque_s:
+        if tempo < contato_s - margem_frame_s or tempo > primeiro_toque_s + margem_frame_s:
             continue
+        tempo = max(contato_s, min(primeiro_toque_s, tempo))
         ponto = _ponto_normalizado_calibracao(mark)
         if ponto is None:
             continue
@@ -1888,6 +1990,7 @@ def _calcular_velocidade_saque(
         return None
 
     dt = primeiro_toque_s - contato_s
+    dt_bruto = primeiro_toque_s_bruto - contato_s_bruto
     distancia_planta = math.hypot(ponto_toque.x - ponto_contato_chao.x, ponto_toque.y - ponto_contato_chao.y)
     distancia_reta_3d = math.sqrt(distancia_planta**2 + (altura_contato - altura_toque) ** 2)
     distancia_segmentada = 0.0
@@ -1940,6 +2043,8 @@ def _calcular_velocidade_saque(
         altura_contato_m=altura_contato,
         altura_primeiro_toque_m=altura_toque,
         tempo_voo_s=dt,
+        tempo_voo_bruto_s=dt_bruto,
+        fps_calculo=fps_calculo,
         amostras_usadas=len(pontos_filtrados),
         metodo=metodo,
         confianca=min(0.98, confianca),
@@ -2082,13 +2187,16 @@ def _fator_radar_saque(
         fator = float(raw)
     except (TypeError, ValueError):
         fator = SERVE_RADAR_SPEED_FACTOR
+    if fator > 1.30:
+        # Compatibilidade com calibracoes corrompidas/acima do teto esperado.
+        fator = SERVE_RADAR_SPEED_FACTOR
     if fator < SERVE_RADAR_SPEED_FACTOR:
         fator = SERVE_RADAR_SPEED_FACTOR
 
     # A medicao oficial de TV costuma ser a velocidade inicial/radar logo apos
-    # a raquete. O trecho contato->primeiro quique mede velocidade media de voo,
-    # que ja perdeu energia por arrasto; aplicamos uma correcao conservadora.
-    return max(1.12, min(1.38, fator))
+    # a raquete. Este fator e mantido como calibracao empirica, mas sem piso
+    # alto para nao superestimar saques ja medidos com pontos precisos.
+    return max(1.0, min(1.30, fator))
 
 
 def _desenhar_frame(
@@ -2442,7 +2550,17 @@ def _ponto_normalizado_calibracao(raw: object) -> tuple[float, float] | None:
         y = float(raw.get("y"))
     except (TypeError, ValueError):
         return None
-    if not math.isfinite(x) or not math.isfinite(y) or x < 0 or x > 1 or y < 0 or y > 1:
+    auto_projetado = bool(raw.get("auto_projected")) or str(raw.get("source") or "") == "projection_baseline_center"
+    limite_min = -0.25 if auto_projetado else 0.0
+    limite_max = 1.25 if auto_projetado else 1.0
+    if (
+        not math.isfinite(x)
+        or not math.isfinite(y)
+        or x < limite_min
+        or x > limite_max
+        or y < limite_min
+        or y > limite_max
+    ):
         return None
     return x, y
 

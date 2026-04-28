@@ -32,6 +32,7 @@ const elementos = {
   modalCalibracao: document.querySelector("#modal-calibracao"),
   videoCalibracao: document.querySelector("#video-calibracao"),
   canvasCalibracao: document.querySelector("#canvas-calibracao"),
+  overlayCalibracao: document.querySelector("#overlay-calibracao"),
   instrucaoCalibracao: document.querySelector("#instrucao-calibracao"),
   alvoCalibracao: document.querySelector("#alvo-calibracao"),
   progressoCalibracao: document.querySelector("#progresso-calibracao"),
@@ -77,12 +78,14 @@ const estado = {
   calibracaoServidorId: null,
   frameServidorImagem: null,
   frameServidorSeq: 0,
+  frameServidorIndexAtual: null,
   frameServidorTimer: null,
   frameServidorAbortController: null,
   calibracao: null,
   calibracaoPronta: false,
   etapaCalibracao: "quadra",
   indicePontoQuadra: 0,
+  indiceCentroBaseCalibracao: 0,
   indiceJogadorCalibracao: 0,
   zoomCalibracao: 1,
   panCalibracao: { x: 0.5, y: 0.5 },
@@ -101,19 +104,76 @@ const estado = {
 };
 
 const PONTOS_QUADRA_CALIBRACAO = [
-  { id: "sup_esquerda", label: "Linha de base superior - canto esquerdo" },
-  { id: "sup_direita", label: "Linha de base superior - canto direito" },
-  { id: "inf_esquerda", label: "Linha de base inferior - canto esquerdo" },
-  { id: "inf_direita", label: "Linha de base inferior - canto direito" },
-  { id: "rede_esquerda", label: "Rede - base inferior na linha externa esquerda" },
-  { id: "rede_direita", label: "Rede - base inferior na linha externa direita" },
-  { id: "servico_sup_esquerda", label: "Linha interna superior esquerda" },
-  { id: "servico_sup_direita", label: "Linha interna superior direita" },
-  { id: "servico_inf_esquerda", label: "Linha interna inferior esquerda" },
-  { id: "servico_inf_direita", label: "Linha interna inferior direita" },
-  { id: "centro_sup", label: "T superior / centro da zona de saque" },
-  { id: "centro_inf", label: "T inferior / centro da zona de saque" },
+  { id: "sup_esquerda", label: "Base superior externa - canto esquerdo" },
+  { id: "sup_direita", label: "Base superior externa - canto direito" },
+  { id: "inf_esquerda", label: "Base inferior externa - canto esquerdo" },
+  { id: "inf_direita", label: "Base inferior externa - canto direito" },
+  { id: "rede_esquerda", label: "Rede - extremidade esquerda na lateral externa" },
+  { id: "rede_direita", label: "Rede - extremidade direita na lateral externa" },
+  { id: "servico_sup_esquerda", label: "Servico superior - lateral interna esquerda" },
+  { id: "servico_sup_direita", label: "Servico superior - lateral interna direita" },
+  { id: "servico_inf_esquerda", label: "Servico inferior - lateral interna esquerda" },
+  { id: "servico_inf_direita", label: "Servico inferior - lateral interna direita" },
+  { id: "centro_sup", label: "T superior - centro da linha de serviço" },
+  { id: "centro_inf", label: "T inferior - centro da linha de serviço" },
 ];
+
+const PONTOS_CENTRO_BASE_CALIBRACAO = [
+  { id: "base_sup_centro", label: "Meio da linha de base superior" },
+  { id: "base_inf_centro", label: "Meio da linha de base inferior" },
+];
+
+const IDS_CANTOS_BASE = ["sup_esquerda", "sup_direita", "inf_esquerda", "inf_direita"];
+const IDS_PONTOS_QUADRA_OFICIAIS = PONTOS_QUADRA_CALIBRACAO.map((ponto) => ponto.id);
+
+const MEDIDAS_QUADRA_OFICIAIS = {
+  larguraTotalM: 10.97,
+  larguraInternaM: 8.23,
+  baseAteTM: 5.485,
+  tAteRedeM: 6.4,
+  tAteLinhaInternaM: 4.115,
+};
+MEDIDAS_QUADRA_OFICIAIS.comprimentoM = (MEDIDAS_QUADRA_OFICIAIS.baseAteTM + MEDIDAS_QUADRA_OFICIAIS.tAteRedeM) * 2;
+MEDIDAS_QUADRA_OFICIAIS.centroXM = MEDIDAS_QUADRA_OFICIAIS.larguraTotalM / 2;
+MEDIDAS_QUADRA_OFICIAIS.redeYM = MEDIDAS_QUADRA_OFICIAIS.comprimentoM / 2;
+MEDIDAS_QUADRA_OFICIAIS.lateralInternaEsquerdaXM = MEDIDAS_QUADRA_OFICIAIS.centroXM - MEDIDAS_QUADRA_OFICIAIS.tAteLinhaInternaM;
+MEDIDAS_QUADRA_OFICIAIS.lateralInternaDireitaXM = MEDIDAS_QUADRA_OFICIAIS.centroXM + MEDIDAS_QUADRA_OFICIAIS.tAteLinhaInternaM;
+MEDIDAS_QUADRA_OFICIAIS.servicoSuperiorYM = MEDIDAS_QUADRA_OFICIAIS.baseAteTM;
+MEDIDAS_QUADRA_OFICIAIS.servicoInferiorYM = MEDIDAS_QUADRA_OFICIAIS.comprimentoM - MEDIDAS_QUADRA_OFICIAIS.baseAteTM;
+
+const PONTOS_QUADRA_REAIS_M = {
+  sup_esquerda: [0, 0],
+  sup_direita: [MEDIDAS_QUADRA_OFICIAIS.larguraTotalM, 0],
+  inf_esquerda: [0, MEDIDAS_QUADRA_OFICIAIS.comprimentoM],
+  inf_direita: [MEDIDAS_QUADRA_OFICIAIS.larguraTotalM, MEDIDAS_QUADRA_OFICIAIS.comprimentoM],
+  rede_esquerda: [0, MEDIDAS_QUADRA_OFICIAIS.redeYM],
+  rede_direita: [MEDIDAS_QUADRA_OFICIAIS.larguraTotalM, MEDIDAS_QUADRA_OFICIAIS.redeYM],
+  servico_sup_esquerda: [MEDIDAS_QUADRA_OFICIAIS.lateralInternaEsquerdaXM, MEDIDAS_QUADRA_OFICIAIS.servicoSuperiorYM],
+  servico_sup_direita: [MEDIDAS_QUADRA_OFICIAIS.lateralInternaDireitaXM, MEDIDAS_QUADRA_OFICIAIS.servicoSuperiorYM],
+  servico_inf_esquerda: [MEDIDAS_QUADRA_OFICIAIS.lateralInternaEsquerdaXM, MEDIDAS_QUADRA_OFICIAIS.servicoInferiorYM],
+  servico_inf_direita: [MEDIDAS_QUADRA_OFICIAIS.lateralInternaDireitaXM, MEDIDAS_QUADRA_OFICIAIS.servicoInferiorYM],
+  centro_sup: [MEDIDAS_QUADRA_OFICIAIS.centroXM, MEDIDAS_QUADRA_OFICIAIS.servicoSuperiorYM],
+  centro_inf: [MEDIDAS_QUADRA_OFICIAIS.centroXM, MEDIDAS_QUADRA_OFICIAIS.servicoInferiorYM],
+};
+
+const PONTOS_AUX_QUADRA_REAIS_M = {
+  base_sup_centro: [MEDIDAS_QUADRA_OFICIAIS.centroXM, 0],
+  base_inf_centro: [MEDIDAS_QUADRA_OFICIAIS.centroXM, MEDIDAS_QUADRA_OFICIAIS.comprimentoM],
+};
+
+const PONTOS_HOMOGRAFIA_QUADRA_REAIS_M = {
+  ...PONTOS_QUADRA_REAIS_M,
+  ...PONTOS_AUX_QUADRA_REAIS_M,
+};
+
+const REFERENCIA_PROJECAO_SAQUE = {
+  jogadorReferencia: "p1",
+  deltaJogadorQuadraM: { x: -0.183, y: 3.069 },
+  deltaJogadorImagemNorm: { x: -0.0026, y: 0.1002 },
+  deltaContatoImagemNorm: { x: 0.0002, y: 0.2783 },
+  baseInferiorM: 0.741,
+  linhaCentralTM: 1.331,
+};
 
 const MIN_MARCACOES_BOLA = 12;
 const FRAME_SERVIDOR_DEBOUNCE_MS = 120;
@@ -307,7 +367,7 @@ function renderizarMetricas(metricas, metadata = null) {
           `Distância 3D: ${formatarNumero(saqueInfo.distancia_m ?? 0, " m")}.`,
           `Media de voo: ${formatarNumero(saqueInfo.velocidade_media_voo_kmh ?? 0, " km/h")}.`,
           `Fator radar: ${formatarNumero(saqueInfo.fator_radar ?? 1, "x")}.`,
-          `Janela overlay: ${formatarNumero(saqueInfo.overlay_duracao_s ?? 0.7, " s")}.`,
+          `Janela overlay: ${formatarNumero(saqueInfo.overlay_duracao_s ?? 1.25, " s")}.`,
         ].join(" ")
       : `Não calculada: marque contato com a raquete, projeção do contato no chão e primeiro toque do saque na quadra.${faltandoSaque}`;
 
@@ -624,10 +684,12 @@ function iniciarCalibracaoArquivo(arquivo) {
   estado.objetoUrlFrameServidor = null;
   estado.calibracaoServidorId = null;
   estado.frameServidorImagem = null;
+  estado.frameServidorIndexAtual = null;
   estado.frameServidorSeq += 1;
   estado.carregandoFrameCalibracao = true;
   estado.etapaCalibracao = "quadra";
   estado.indicePontoQuadra = 0;
+  estado.indiceCentroBaseCalibracao = 0;
   estado.indiceJogadorCalibracao = 0;
   estado.zoomCalibracao = 1;
   estado.panCalibracao = { x: 0.5, y: 0.5 };
@@ -644,9 +706,17 @@ function iniciarCalibracaoArquivo(arquivo) {
       duration_s: 0,
       width: 0,
       height: 0,
+      display_width: 0,
+      display_height: 0,
+      source_width: 0,
+      source_height: 0,
+      fps: 0,
+      frames_video: 0,
     },
     court_points: {},
     court_missing: {},
+    court_aux_points: {},
+    court_projection: null,
     players: {
       player_count: Number(elementos.qtdJogadoresCalibracao.value || 2),
       p1: null,
@@ -658,7 +728,7 @@ function iniciarCalibracaoArquivo(arquivo) {
     },
     serve_metrics: {
       curve_factor: 1.03,
-      radar_factor: 1.30,
+      radar_factor: 1.074,
       height_mode: "auto_from_contact_projection",
       note: "Velocidade do saque calculada em 3D entre contato e primeiro toque, com altura estimada automaticamente pela projecao no chao, homografia da quadra e correcao radar para velocidade inicial.",
     },
@@ -704,25 +774,87 @@ async function prepararCalibracaoServidor(arquivo) {
 
   estado.calibracaoServidorId = dados.calibracao_id;
   estado.calibracao.video.duration_s = Number(dados.duracao_s || estado.calibracao.video.duration_s || 0);
-  estado.calibracao.video.width = Number(dados.largura || estado.calibracao.video.width || 0);
-  estado.calibracao.video.height = Number(dados.altura || estado.calibracao.video.height || 0);
+  estado.calibracao.video.fps = Number(dados.fps || estado.calibracao.video.fps || 0);
+  estado.calibracao.video.frames_video = Number(dados.frames_video || estado.calibracao.video.frames_video || 0);
+  const larguraServidor = Number(dados.largura || 0);
+  const alturaServidor = Number(dados.altura || 0);
+  if (larguraServidor > 0) {
+    estado.calibracao.video.source_width = larguraServidor;
+    estado.calibracao.video.width = estado.calibracao.video.width || larguraServidor;
+  }
+  if (alturaServidor > 0) {
+    estado.calibracao.video.source_height = alturaServidor;
+    estado.calibracao.video.height = estado.calibracao.video.height || alturaServidor;
+  }
 
   if (estado.calibracao.video.duration_s > 0) {
     elementos.rangeTempoCalibracao.max = String(estado.calibracao.video.duration_s);
   }
-  if (estado.calibracao.video.width > 0 && estado.calibracao.video.height > 0) {
-    configurarCanvasCalibracao(estado.calibracao.video.width, estado.calibracao.video.height);
+  const larguraVisual = estado.calibracao.video.display_width || estado.calibracao.video.width;
+  const alturaVisual = estado.calibracao.video.display_height || estado.calibracao.video.height;
+  if (larguraVisual > 0 && alturaVisual > 0) {
+    configurarCanvasCalibracao(larguraVisual, alturaVisual);
   }
 
   const tempo = Number(elementos.rangeTempoCalibracao.value || 0);
   await carregarFrameServidorCalibracao(tempo);
 }
 
+function aspectoVisualCalibracao(larguraReferencia = 0, alturaReferencia = 0) {
+  const videoCalibracao = estado.calibracao?.video ?? {};
+  const largura = Number(
+    videoCalibracao.display_width
+    || videoCalibracao.width
+    || larguraReferencia
+    || elementos.videoCalibracao.videoWidth
+    || videoCalibracao.source_width
+    || 0,
+  );
+  const altura = Number(
+    videoCalibracao.display_height
+    || videoCalibracao.height
+    || alturaReferencia
+    || elementos.videoCalibracao.videoHeight
+    || videoCalibracao.source_height
+    || 0,
+  );
+  if (largura > 0 && altura > 0) {
+    return largura / altura;
+  }
+  return 16 / 9;
+}
+
 function configurarCanvasCalibracao(larguraOriginal, alturaOriginal) {
-  const largura = Math.min(960, larguraOriginal || 960);
-  const altura = Math.max(220, Math.round(largura * ((alturaOriginal || 540) / Math.max(larguraOriginal || 960, 1))));
+  const aspecto = Math.max(aspectoVisualCalibracao(larguraOriginal, alturaOriginal), 1e-6);
+  const larguraBase = Number(larguraOriginal || 0) > 0 ? Number(larguraOriginal) : 960;
+  const largura = Math.min(1280, Math.max(320, Math.round(larguraBase)));
+  const altura = Math.max(120, Math.round(largura / aspecto));
   elementos.canvasCalibracao.width = largura;
   elementos.canvasCalibracao.height = altura;
+  atualizarEscalaVisualCanvasCalibracao();
+}
+
+function atualizarEscalaVisualCanvasCalibracao() {
+  const medidas = medidasVisuaisCanvasCalibracao();
+  if (!medidas) {
+    elementos.canvasCalibracao?.style.setProperty("--escala-canvas-calibracao", "1");
+    return;
+  }
+  medidas.canvas.style.width = `${Math.max(1, Math.floor(medidas.larguraBase))}px`;
+  medidas.canvas.style.height = `${Math.max(1, Math.floor(medidas.alturaBase))}px`;
+  estado.panCalibracao = limitarPanCalibracao(estado.panCalibracao, medidas);
+  const panX = (0.5 - estado.panCalibracao.x) * medidas.larguraBase * medidas.escala;
+  const panY = (0.5 - estado.panCalibracao.y) * medidas.alturaBase * medidas.escala;
+  medidas.canvas.style.setProperty("--escala-canvas-calibracao", String(Number(medidas.escala.toFixed(4))));
+  medidas.canvas.style.setProperty("--pan-canvas-calibracao-x", `${Number(panX.toFixed(2))}px`);
+  medidas.canvas.style.setProperty("--pan-canvas-calibracao-y", `${Number(panY.toFixed(2))}px`);
+  if (elementos.overlayCalibracao) {
+    elementos.overlayCalibracao.style.width = medidas.canvas.style.width;
+    elementos.overlayCalibracao.style.height = medidas.canvas.style.height;
+    elementos.overlayCalibracao.style.setProperty("--escala-canvas-calibracao", String(Number(medidas.escala.toFixed(4))));
+    elementos.overlayCalibracao.style.setProperty("--pan-canvas-calibracao-x", `${Number(panX.toFixed(2))}px`);
+    elementos.overlayCalibracao.style.setProperty("--pan-canvas-calibracao-y", `${Number(panY.toFixed(2))}px`);
+  }
 }
 
 function prepararVideoCalibracao() {
@@ -735,6 +867,8 @@ function prepararVideoCalibracao() {
   estado.calibracao.video.duration_s = Number(duracao.toFixed(3));
   estado.calibracao.video.width = video.videoWidth || 0;
   estado.calibracao.video.height = video.videoHeight || 0;
+  estado.calibracao.video.display_width = video.videoWidth || 0;
+  estado.calibracao.video.display_height = video.videoHeight || 0;
 
   configurarCanvasCalibracao(video.videoWidth || 960, video.videoHeight || 540);
   elementos.rangeTempoCalibracao.max = String(Math.max(duracao, 0));
@@ -828,6 +962,7 @@ async function carregarFrameServidorCalibracao(tempo) {
       throw new Error(erro.detail ?? "Falha ao carregar frame de calibracao.");
     }
 
+    const frameIndexResposta = Number(resposta.headers.get("X-Frame-Index"));
     const blob = await resposta.blob();
     if (seq !== estado.frameServidorSeq || controller.signal.aborted) {
       return;
@@ -846,6 +981,7 @@ async function carregarFrameServidorCalibracao(tempo) {
     }
     estado.objetoUrlFrameServidor = objectUrl;
     estado.frameServidorImagem = imagem;
+    estado.frameServidorIndexAtual = Number.isFinite(frameIndexResposta) ? frameIndexResposta : null;
     estado.carregandoFrameCalibracao = false;
     desenharCanvasCalibracao();
     elementos.statusUpload.textContent = "Frame carregado pelo servidor. Complete a calibracao obrigatoria antes de enviar.";
@@ -862,6 +998,7 @@ function irParaTempoCalibracao(tempo) {
     ? video.duration
     : Number(estado.calibracao?.video?.duration_s || 0);
   const seguro = Math.max(0, Math.min(Number(tempo) || 0, duracao || 0));
+  estado.frameServidorIndexAtual = null;
   elementos.rangeTempoCalibracao.value = String(seguro);
   elementos.tempoCalibracao.textContent = `${formatarNumero(seguro, " s")}`;
   if (estado.calibracaoServidorId) {
@@ -880,13 +1017,52 @@ function irParaTempoCalibracao(tempo) {
   }
 }
 
+function modalCalibracaoAberto() {
+  return Boolean(
+    elementos.modalCalibracao
+    && !elementos.modalCalibracao.classList.contains("oculto")
+    && elementos.modalCalibracao.getAttribute("aria-hidden") !== "true",
+  );
+}
+
+function fpsCalibracao() {
+  const fps = Number(estado.calibracao?.video?.fps || 0);
+  if (Number.isFinite(fps) && fps >= 1) {
+    return Math.min(240, fps);
+  }
+  return 30;
+}
+
+function quantizarTempoPorFrameCalibracao(tempo) {
+  const fps = fpsCalibracao();
+  const seguro = Math.max(0, Number(tempo) || 0);
+  return Math.round(seguro * fps) / fps;
+}
+
+function tempoFrameServidorAtual() {
+  const frame = Number(estado.frameServidorIndexAtual);
+  if (!Number.isFinite(frame) || frame < 0) {
+    return null;
+  }
+  return frame / fpsCalibracao();
+}
+
+function tempoAtualMarcacaoCalibracao() {
+  const tempoFrame = tempoFrameServidorAtual();
+  if (tempoFrame !== null && !estado.carregandoFrameCalibracao) {
+    return tempoFrame;
+  }
+  return quantizarTempoPorFrameCalibracao(Number(elementos.rangeTempoCalibracao.value || elementos.videoCalibracao.currentTime || 0));
+}
+
+function ajustarTempoCalibracaoPorTecla(delta) {
+  const tempoAtual = Number(elementos.rangeTempoCalibracao.value || elementos.videoCalibracao.currentTime || 0);
+  const proximoTempo = Math.round((tempoAtual + delta) * 100) / 100;
+  irParaTempoCalibracao(proximoTempo);
+}
+
 function pontoNormalizadoCanvas(evento) {
-  const tela = pontoTelaCanvas(evento);
-  const view = viewportCalibracao();
-  return {
-    x: Math.max(0, Math.min(1, view.x + tela.x * view.w)),
-    y: Math.max(0, Math.min(1, view.y + tela.y * view.h)),
-  };
+  return pontoTelaCanvas(evento);
 }
 
 function pontoTelaCanvas(evento) {
@@ -899,47 +1075,77 @@ function pontoTelaCanvas(evento) {
   };
 }
 
-function viewportCalibracao() {
-  const zoom = Math.max(1, Number(estado.zoomCalibracao) || 1);
-  const largura = 1 / zoom;
-  const altura = 1 / zoom;
-  const metadeW = largura / 2;
-  const metadeH = altura / 2;
-  const centroX = Math.max(metadeW, Math.min(1 - metadeW, estado.panCalibracao.x));
-  const centroY = Math.max(metadeH, Math.min(1 - metadeH, estado.panCalibracao.y));
-  estado.panCalibracao = { x: centroX, y: centroY };
+function pontoInteracaoCanvas(evento) {
+  const ponto = pontoTelaCanvas(evento);
+  const rectPalco = elementos.canvasCalibracao.parentElement?.getBoundingClientRect();
+  const centroX = rectPalco ? rectPalco.left + rectPalco.width / 2 : evento.clientX;
+  const centroY = rectPalco ? rectPalco.top + rectPalco.height / 2 : evento.clientY;
   return {
-    x: centroX - metadeW,
-    y: centroY - metadeH,
-    w: largura,
-    h: altura,
+    ...ponto,
+    offsetX: evento.clientX - centroX,
+    offsetY: evento.clientY - centroY,
+  };
+}
+
+function viewportCalibracao() {
+  return { x: 0, y: 0, w: 1, h: 1 };
+}
+
+function medidasVisuaisCanvasCalibracao() {
+  const canvas = elementos.canvasCalibracao;
+  const palco = canvas?.parentElement;
+  if (!canvas || !palco || canvas.width <= 0 || canvas.height <= 0) {
+    return null;
+  }
+  const larguraPalco = palco.clientWidth || 0;
+  const alturaPalco = palco.clientHeight || 0;
+  if (larguraPalco <= 0 || alturaPalco <= 0) {
+    return null;
+  }
+  const aspectoCanvas = canvas.width / Math.max(canvas.height, 1);
+  const escalaContain = Math.min(larguraPalco / Math.max(canvas.width, 1), alturaPalco / Math.max(canvas.height, 1));
+  const larguraBase = canvas.width * Math.max(escalaContain, 1e-6);
+  const alturaBase = larguraBase / Math.max(aspectoCanvas, 1e-6);
+  const escala = Math.max(1, Number(estado.zoomCalibracao) || 1);
+  return {
+    canvas,
+    larguraPalco,
+    alturaPalco,
+    larguraBase,
+    alturaBase,
+    escala,
+  };
+}
+
+function limitarPanCalibracao(pan = estado.panCalibracao, medidas = medidasVisuaisCanvasCalibracao()) {
+  if (!medidas) {
+    return { x: 0.5, y: 0.5 };
+  }
+  const meiaJanelaX = Math.min(0.5, medidas.larguraPalco / Math.max(medidas.larguraBase * medidas.escala * 2, 1));
+  const meiaJanelaY = Math.min(0.5, medidas.alturaPalco / Math.max(medidas.alturaBase * medidas.escala * 2, 1));
+  return {
+    x: Math.max(meiaJanelaX, Math.min(1 - meiaJanelaX, Number(pan?.x) || 0.5)),
+    y: Math.max(meiaJanelaY, Math.min(1 - meiaJanelaY, Number(pan?.y) || 0.5)),
   };
 }
 
 function ajustarZoomCalibracao(valor, manterPan = false, ancoraTela = null) {
-  const zoomAnterior = Math.max(1, Number(estado.zoomCalibracao) || 1);
-  const viewAnterior = viewportCalibracao();
-  const ancora = ancoraTela ?? estado.ultimoPonteiroCalibracao ?? { x: 0.5, y: 0.5 };
-  const ancoraNormalizada = {
-    x: viewAnterior.x + ancora.x * viewAnterior.w,
-    y: viewAnterior.y + ancora.y * viewAnterior.h,
-  };
+  const ancora = ancoraTela ?? estado.ultimoPonteiroCalibracao ?? { x: 0.5, y: 0.5, offsetX: 0, offsetY: 0 };
   const zoom = Math.max(1, Math.min(5, Number(valor) || 1));
   estado.zoomCalibracao = zoom;
   if (!manterPan || zoom === 1) {
     estado.panCalibracao = { x: 0.5, y: 0.5 };
-  } else if (ancoraTela || zoom !== zoomAnterior) {
-    const largura = 1 / zoom;
-    const altura = 1 / zoom;
+  } else if (ancoraTela && Number.isFinite(ancora.offsetX) && Number.isFinite(ancora.offsetY)) {
+    const medidas = medidasVisuaisCanvasCalibracao();
     estado.panCalibracao = {
-      x: ancoraNormalizada.x + (0.5 - ancora.x) * largura,
-      y: ancoraNormalizada.y + (0.5 - ancora.y) * altura,
+      x: ancora.x - ancora.offsetX / Math.max((medidas?.larguraBase || 1) * zoom, 1),
+      y: ancora.y - ancora.offsetY / Math.max((medidas?.alturaBase || 1) * zoom, 1),
     };
-  } else {
-    viewportCalibracao();
   }
+  estado.panCalibracao = limitarPanCalibracao();
   elementos.rangeZoomCalibracao.value = String(zoom);
   elementos.zoomCalibracao.textContent = `Zoom ${formatarNumero(zoom, "x")}`;
+  atualizarEscalaVisualCanvasCalibracao();
   desenharCanvasCalibracao();
 }
 
@@ -948,7 +1154,7 @@ function variarZoomCalibracao(delta, ancoraTela = null) {
 }
 
 function iniciarPanCalibracao(evento) {
-  estado.ultimoPonteiroCalibracao = pontoTelaCanvas(evento);
+  estado.ultimoPonteiroCalibracao = pontoInteracaoCanvas(evento);
   if (estado.zoomCalibracao <= 1) {
     return;
   }
@@ -964,22 +1170,25 @@ function iniciarPanCalibracao(evento) {
 }
 
 function moverPanCalibracao(evento) {
-  estado.ultimoPonteiroCalibracao = pontoTelaCanvas(evento);
+  estado.ultimoPonteiroCalibracao = pontoInteracaoCanvas(evento);
+  if (guiaProjecaoSaqueAtiva() || guiaCentrosBaseAtiva()) {
+    atualizarOverlayCalibracao();
+  }
   if (!estado.arrastandoCalibracao || !estado.dragCalibracao || estado.zoomCalibracao <= 1) {
     return;
   }
-  const rect = elementos.canvasCalibracao.getBoundingClientRect();
-  const dx = (evento.clientX - estado.dragCalibracao.x) / Math.max(rect.width, 1);
-  const dy = (evento.clientY - estado.dragCalibracao.y) / Math.max(rect.height, 1);
+  const medidas = medidasVisuaisCanvasCalibracao();
+  const dx = evento.clientX - estado.dragCalibracao.x;
+  const dy = evento.clientY - estado.dragCalibracao.y;
   if (Math.hypot(evento.clientX - estado.dragCalibracao.x, evento.clientY - estado.dragCalibracao.y) > 4) {
     estado.suprimirCliqueCalibracao = true;
   }
-  estado.panCalibracao = {
-    x: estado.dragCalibracao.panX - dx / estado.zoomCalibracao,
-    y: estado.dragCalibracao.panY - dy / estado.zoomCalibracao,
-  };
-  viewportCalibracao();
-  desenharCanvasCalibracao();
+  estado.panCalibracao = limitarPanCalibracao({
+    x: estado.dragCalibracao.panX - dx / Math.max((medidas?.larguraBase || 1) * estado.zoomCalibracao, 1),
+    y: estado.dragCalibracao.panY - dy / Math.max((medidas?.alturaBase || 1) * estado.zoomCalibracao, 1),
+  }, medidas);
+  atualizarEscalaVisualCanvasCalibracao();
+  atualizarOverlayCalibracao();
 }
 
 function finalizarPanCalibracao(evento) {
@@ -1005,7 +1214,7 @@ function registrarCliqueCalibracao(evento) {
   }
 
   const ponto = pontoNormalizadoCanvas(evento);
-  const tempo = Number(elementos.rangeTempoCalibracao.value || elementos.videoCalibracao.currentTime || 0);
+  const tempo = tempoAtualMarcacaoCalibracao();
   if (estado.tipoEspecialBola && !quadraProntaParaSaque()) {
     estado.tipoEspecialBola = null;
     elementos.progressoCalibracao.textContent = "Conclua primeiro as medicoes da quadra antes de marcar eventos do saque.";
@@ -1021,6 +1230,7 @@ function registrarCliqueCalibracao(evento) {
       etapa: etapaBolaPorRole(tipoEspecial),
     });
     estado.tipoEspecialBola = null;
+    sugerirTempoAposMarcacaoBola(tempo, { saltoLargo: evento.ctrlKey });
     desenharCanvasCalibracao();
     atualizarInterfaceCalibracao();
     return;
@@ -1046,9 +1256,32 @@ function registrarCliqueCalibracao(evento) {
     invalidarPreviewVelocidadeSaque();
     estado.indicePontoQuadra += 1;
     avancarIndiceQuadraAtePendente();
-    if (estado.indicePontoQuadra >= PONTOS_QUADRA_CALIBRACAO.length && totalPontosQuadraMarcados() >= 4) {
-      estado.etapaCalibracao = "jogadores";
-      estado.indiceJogadorCalibracao = estado.calibracao.players.p1 ? 1 : 0;
+    if (estado.indicePontoQuadra >= PONTOS_QUADRA_CALIBRACAO.length) {
+      resolverFimMarcacaoQuadra();
+    }
+  } else if (estado.etapaCalibracao === "quadra_centros_base") {
+    estado.calibracao.court_aux_points = estado.calibracao.court_aux_points ?? {};
+    const alvo = PONTOS_CENTRO_BASE_CALIBRACAO[estado.indiceCentroBaseCalibracao];
+    if (!alvo) {
+      atualizarInterfaceCalibracao();
+      return;
+    }
+    estado.calibracao.court_aux_points[alvo.id] = {
+      x: Number(ponto.x.toFixed(5)),
+      y: Number(ponto.y.toFixed(5)),
+      label: alvo.label,
+      time_s: Number(tempo.toFixed(3)),
+    };
+    invalidarPreviewVelocidadeSaque();
+    estado.indiceCentroBaseCalibracao += 1;
+    avancarIndiceCentroBaseAtePendente();
+    if (centrosBaseComplementoCompletos()) {
+      if (projetarPontosQuadraFaltantes()) {
+        estado.etapaCalibracao = "jogadores";
+        estado.indiceJogadorCalibracao = estado.calibracao.players.p1 ? 1 : 0;
+      } else {
+        elementos.progressoCalibracao.textContent = "Nao foi possivel projetar a malha oficial. Marque mais pontos visiveis da quadra antes de seguir.";
+      }
     }
   } else if (estado.etapaCalibracao === "jogadores") {
     const total = Number(estado.calibracao.players.player_count || 2);
@@ -1075,7 +1308,7 @@ function registrarCliqueCalibracao(evento) {
       label: etapa?.label,
       etapa,
     });
-    sugerirTempoBola();
+    sugerirTempoAposMarcacaoBola(tempo, { saltoLargo: evento.ctrlKey });
   }
 
   desenharCanvasCalibracao();
@@ -1090,6 +1323,260 @@ function sugerirTempoBola() {
   }
   const proporcao = TEMPOS_BOLA_SUGERIDOS[Math.min(indice, TEMPOS_BOLA_SUGERIDOS.length - 1)];
   irParaTempoCalibracao(duracao * proporcao);
+}
+
+function sugerirTempoAposMarcacaoBola(tempoMarcado, opcoes = {}) {
+  const duracao = Number(elementos.videoCalibracao.duration || estado.calibracao?.video?.duration_s || 0);
+  if (!duracao) {
+    return;
+  }
+  const salto = opcoes.saltoLargo ? 0.1 : 0.05;
+  const proximoTempo = Math.min(duracao, Math.max(0, Number(tempoMarcado) || 0) + salto);
+  irParaTempoCalibracao(proximoTempo);
+}
+
+function pontoQuadraCalibracaoPorId(id) {
+  return estado.calibracao?.court_points?.[id] ?? null;
+}
+
+function pontoQuadraManualPorId(id) {
+  const ponto = pontoQuadraCalibracaoPorId(id);
+  return ponto && !ponto.auto_projected ? ponto : null;
+}
+
+function pontoAuxiliarQuadraPorId(id) {
+  return estado.calibracao?.court_aux_points?.[id] ?? null;
+}
+
+function pontosQuadraParaHomografia(opcoes = {}) {
+  const incluirProjetados = opcoes.incluirProjetados !== false;
+  const pontosBase = {};
+  Object.entries(estado.calibracao?.court_points ?? {}).forEach(([id, ponto]) => {
+    if (incluirProjetados || !ponto?.auto_projected) {
+      pontosBase[id] = ponto;
+    }
+  });
+  return {
+    ...pontosBase,
+    ...(estado.calibracao?.court_aux_points ?? {}),
+  };
+}
+
+function pontosQuadraFaltantes() {
+  return IDS_PONTOS_QUADRA_OFICIAIS.filter((id) => !pontoQuadraCalibracaoPorId(id));
+}
+
+function pontosQuadraProjetados() {
+  return IDS_PONTOS_QUADRA_OFICIAIS.filter((id) => {
+    const ponto = estado.calibracao?.court_points?.[id];
+    return Boolean(ponto?.auto_projected || String(ponto?.source ?? "").startsWith("projection_"));
+  });
+}
+
+function cantosBaseFaltantes() {
+  return IDS_CANTOS_BASE.filter((id) => !pontoQuadraCalibracaoPorId(id));
+}
+
+function cantosBaseProjetados() {
+  return IDS_CANTOS_BASE.filter((id) => pontosQuadraProjetados().includes(id));
+}
+
+function centrosBaseComplementoCompletos() {
+  return PONTOS_CENTRO_BASE_CALIBRACAO.every((ponto) => Boolean(pontoAuxiliarQuadraPorId(ponto.id)));
+}
+
+function complementoQuadraPendente() {
+  return pontosQuadraFaltantes().length > 0 || totalPontosQuadraPulados() > 0;
+}
+
+function algumPontoManualQuadra(ids) {
+  return ids.some((id) => Boolean(pontoQuadraManualPorId(id)));
+}
+
+function requisitosMalhaOficial() {
+  const faltantes = [];
+  if (!pontoQuadraManualPorId("servico_sup_esquerda") || !pontoQuadraManualPorId("servico_sup_direita")) {
+    faltantes.push("largura do T superior");
+  }
+  if (!pontoQuadraManualPorId("servico_inf_esquerda") || !pontoQuadraManualPorId("servico_inf_direita")) {
+    faltantes.push("largura do T inferior");
+  }
+  if (!pontoQuadraManualPorId("centro_sup") || !pontoQuadraManualPorId("centro_inf")) {
+    faltantes.push("meios do T superior/inferior");
+  }
+  if (!centrosBaseComplementoCompletos()) {
+    faltantes.push("meios das duas linhas de base");
+  }
+  if (!algumPontoManualQuadra(["sup_esquerda", "inf_esquerda", "rede_esquerda"])) {
+    faltantes.push("referencia externa esquerda");
+  }
+  if (!algumPontoManualQuadra(["sup_direita", "inf_direita", "rede_direita"])) {
+    faltantes.push("referencia externa direita");
+  }
+  return {
+    ok: faltantes.length === 0,
+    faltantes,
+  };
+}
+
+function mensagemRequisitosMalhaOficial() {
+  const requisitos = requisitosMalhaOficial();
+  if (requisitos.ok) {
+    return "";
+  }
+  return `Faltam referencias para projetar a quadra: ${requisitos.faltantes.join(", ")}.`;
+}
+
+function avancarIndiceCentroBaseAtePendente() {
+  while (
+    estado.indiceCentroBaseCalibracao < PONTOS_CENTRO_BASE_CALIBRACAO.length
+    && pontoAuxiliarQuadraPorId(PONTOS_CENTRO_BASE_CALIBRACAO[estado.indiceCentroBaseCalibracao].id)
+  ) {
+    estado.indiceCentroBaseCalibracao += 1;
+  }
+}
+
+function referenciaLarguraBaseMarcada() {
+  const pontos = estado.calibracao?.court_points ?? {};
+  const pares = [
+    ["superior", "sup_esquerda", "sup_direita", "base_sup_centro"],
+    ["inferior", "inf_esquerda", "inf_direita", "base_inf_centro"],
+  ];
+  for (const [nome, esquerdaId, direitaId, centroId] of pares) {
+    if (pontos[esquerdaId] && pontos[direitaId]) {
+      return {
+        nome,
+        esquerda: pontos[esquerdaId],
+        direita: pontos[direitaId],
+        centro: pontoAuxiliarQuadraPorId(centroId),
+      };
+    }
+  }
+  return null;
+}
+
+function registrarPontoQuadraProjetado(id, ponto, metodo) {
+  if (!estado.calibracao || !ponto) {
+    return;
+  }
+  const alvo = PONTOS_QUADRA_CALIBRACAO.find((item) => item.id === id);
+  estado.calibracao.court_points = estado.calibracao.court_points ?? {};
+  estado.calibracao.court_missing = estado.calibracao.court_missing ?? {};
+  estado.calibracao.court_points[id] = {
+    x: Number(Math.max(-0.25, Math.min(1.25, ponto.x)).toFixed(5)),
+    y: Number(Math.max(-0.25, Math.min(1.25, ponto.y)).toFixed(5)),
+    label: alvo?.label ?? id,
+    source: "projection_court_mesh",
+    auto_projected: true,
+    projection_model: metodo,
+  };
+  delete estado.calibracao.court_missing[id];
+}
+
+function projetarPontosQuadraPorHomografia(idsFaltantes) {
+  const matriz = matrizHomografiaVideoParaQuadra({ incluirProjetados: false });
+  const inversa = inverterHomografia(matriz);
+  if (!inversa) {
+    return false;
+  }
+  return idsFaltantes.every((id) => {
+    const destino = PONTOS_QUADRA_REAIS_M[id];
+    if (!destino) {
+      return false;
+    }
+    const pontoBruto = aplicarHomografiaXY(inversa, destino[0], destino[1]);
+    if (
+      !pontoBruto
+      || !Number.isFinite(pontoBruto.x)
+      || !Number.isFinite(pontoBruto.y)
+      || pontoBruto.x < -0.25
+      || pontoBruto.x > 1.25
+      || pontoBruto.y < -0.25
+      || pontoBruto.y > 1.25
+    ) {
+      return false;
+    }
+    const ponto = limitarPontoProjetadoQuadra(pontoBruto);
+    registrarPontoQuadraProjetado(id, ponto, {
+      version: 1,
+      metodo: "malha_oficial_homografia",
+      centros_base: Object.keys(estado.calibracao?.court_aux_points ?? {}),
+      pontos_reais_usados: Object.keys(pontosQuadraParaHomografia({ incluirProjetados: false })),
+    });
+    return true;
+  });
+}
+
+function reverterPontosQuadraProjetados() {
+  if (!estado.calibracao) {
+    return;
+  }
+  estado.calibracao.court_points = estado.calibracao.court_points ?? {};
+  estado.calibracao.court_missing = estado.calibracao.court_missing ?? {};
+  pontosQuadraProjetados().forEach((id) => {
+    const alvo = PONTOS_QUADRA_CALIBRACAO.find((item) => item.id === id);
+    delete estado.calibracao.court_points[id];
+    estado.calibracao.court_missing[id] = {
+      label: alvo?.label ?? id,
+      reason: "not_visible",
+      restored_from_projection: true,
+    };
+  });
+  estado.calibracao.court_projection = null;
+}
+
+function reverterCantosBaseProjetados() {
+  reverterPontosQuadraProjetados();
+}
+
+function projetarPontosQuadraFaltantes() {
+  const idsFaltantes = pontosQuadraFaltantes();
+  if (!idsFaltantes.length) {
+    return true;
+  }
+  if (!centrosBaseComplementoCompletos()) {
+    return false;
+  }
+  reverterPontosQuadraProjetados();
+  if (!requisitosMalhaOficial().ok) {
+    return false;
+  }
+  const faltantesAtualizados = pontosQuadraFaltantes();
+  const ok = projetarPontosQuadraPorHomografia(faltantesAtualizados);
+  if (ok && !pontosQuadraFaltantes().length) {
+    estado.calibracao.court_projection = {
+      type: "official_court_mesh_completion",
+      completed_at: new Date().toISOString(),
+      projected_ids: pontosQuadraProjetados(),
+      auxiliary_points: Object.keys(estado.calibracao?.court_aux_points ?? {}),
+      official_dimensions_m: MEDIDAS_QUADRA_OFICIAIS,
+    };
+    invalidarPreviewVelocidadeSaque();
+    return true;
+  }
+  return false;
+}
+
+function projetarCantosBaseFaltantes() {
+  return projetarPontosQuadraFaltantes();
+}
+
+function resolverFimMarcacaoQuadra() {
+  if (complementoQuadraPendente()) {
+    estado.etapaCalibracao = "quadra_centros_base";
+    estado.indiceCentroBaseCalibracao = 0;
+    avancarIndiceCentroBaseAtePendente();
+    if (centrosBaseComplementoCompletos() && projetarPontosQuadraFaltantes()) {
+      estado.etapaCalibracao = "jogadores";
+      estado.indiceJogadorCalibracao = estado.calibracao.players.p1 ? 1 : 0;
+      elementos.progressoCalibracao.textContent = "Linhas invisiveis projetadas pela malha oficial. Agora marque os jogadores.";
+    } else {
+      elementos.progressoCalibracao.textContent = mensagemRequisitosMalhaOficial() || "Marque o meio das duas linhas de base para projetar as linhas invisiveis da quadra.";
+    }
+    return;
+  }
+  estado.etapaCalibracao = "jogadores";
+  estado.indiceJogadorCalibracao = estado.calibracao.players.p1 ? 1 : 0;
 }
 
 function pontoQuadraResolvido(id) {
@@ -1109,7 +1596,9 @@ function totalPontosQuadraResolvidos() {
 }
 
 function quadraProntaParaSaque() {
-  return totalPontosQuadraResolvidos() >= PONTOS_QUADRA_CALIBRACAO.length && totalPontosQuadraMarcados() >= 4;
+  return totalPontosQuadraResolvidos() >= PONTOS_QUADRA_CALIBRACAO.length
+    && totalPontosQuadraMarcados() >= 4
+    && !complementoQuadraPendente();
 }
 
 function avancarIndiceQuadraAtePendente() {
@@ -1133,7 +1622,7 @@ function pularPontoQuadraCalibracao() {
     return;
   }
 
-  const tempo = Number(elementos.rangeTempoCalibracao.value || elementos.videoCalibracao.currentTime || 0);
+  const tempo = tempoAtualMarcacaoCalibracao();
   if (estado.calibracao.court_points) {
     delete estado.calibracao.court_points[alvo.id];
   }
@@ -1145,9 +1634,8 @@ function pularPontoQuadraCalibracao() {
   invalidarPreviewVelocidadeSaque();
   estado.indicePontoQuadra += 1;
   avancarIndiceQuadraAtePendente();
-  if (estado.indicePontoQuadra >= PONTOS_QUADRA_CALIBRACAO.length && totalPontosQuadraMarcados() >= 4) {
-    estado.etapaCalibracao = "jogadores";
-    estado.indiceJogadorCalibracao = estado.calibracao.players.p1 ? 1 : 0;
+  if (estado.indicePontoQuadra >= PONTOS_QUADRA_CALIBRACAO.length) {
+    resolverFimMarcacaoQuadra();
   }
 
   desenharCanvasCalibracao();
@@ -1165,11 +1653,19 @@ function selecionarTipoEspecialBola(tipo) {
     return;
   }
   estado.tipoEspecialBola = estado.tipoEspecialBola === tipo ? null : tipo;
+  if (estado.tipoEspecialBola === "serve_contact_ground") {
+    const contatoSaque = marcaBolaPorRole("serve_contact");
+    const tempoContato = Number(contatoSaque?.time_s);
+    if (Number.isFinite(tempoContato)) {
+      irParaTempoCalibracao(tempoContato);
+    }
+  }
   const config = TIPOS_ESPECIAIS_BOLA[estado.tipoEspecialBola];
   if (config) {
     elementos.progressoCalibracao.textContent = `Clique no frame para marcar: ${config.label}. Essa marcacao pode ser feita antes do rastreio completo da bolinha.`;
   }
   atualizarInterfaceCalibracao();
+  atualizarOverlayCalibracao();
 }
 
 function atualizarParametrosSaqueCalibracao() {
@@ -1178,7 +1674,7 @@ function atualizarParametrosSaqueCalibracao() {
   }
   estado.calibracao.serve_metrics = estado.calibracao.serve_metrics ?? {};
   estado.calibracao.serve_metrics.curve_factor = 1.03;
-  estado.calibracao.serve_metrics.radar_factor = 1.30;
+  estado.calibracao.serve_metrics.radar_factor = 1.074;
   estado.calibracao.serve_metrics.height_mode = "auto_from_contact_projection";
   estado.calibracao.serve_metrics.note = "Velocidade do saque calculada em 3D entre contato e primeiro toque, com altura estimada automaticamente pela projecao no chao, homografia da quadra e correcao radar para velocidade inicial.";
 }
@@ -1193,11 +1689,18 @@ function avancarEtapaCalibracao() {
       elementos.progressoCalibracao.textContent = "Resolva todos os pontos de quadra: marque os visiveis e pule apenas os que nao aparecem no frame.";
       return;
     }
-    if (totalPontosQuadraMarcados() < 4) {
-      elementos.progressoCalibracao.textContent = "Marque pelo menos 4 pontos reais da quadra antes de avancar; os pulados dependem desses pontos para interpolacao.";
+    resolverFimMarcacaoQuadra();
+  } else if (estado.etapaCalibracao === "quadra_centros_base") {
+    if (!centrosBaseComplementoCompletos()) {
+      elementos.progressoCalibracao.textContent = "Marque os meios das duas linhas de base antes de projetar as linhas invisiveis.";
+      return;
+    }
+    if (!projetarPontosQuadraFaltantes()) {
+      elementos.progressoCalibracao.textContent = mensagemRequisitosMalhaOficial() || "Nao foi possivel projetar a malha oficial com as marcacoes atuais.";
       return;
     }
     estado.etapaCalibracao = "jogadores";
+    estado.indiceJogadorCalibracao = estado.calibracao.players.p1 ? 1 : 0;
   } else if (estado.etapaCalibracao === "jogadores") {
     if (!jogadoresCalibrados()) {
       elementos.progressoCalibracao.textContent = "Marque o Jogador 1 e, se houver, o Jogador 2.";
@@ -1216,6 +1719,8 @@ function voltarEtapaCalibracao() {
     estado.etapaCalibracao = "jogadores";
     estado.tipoEspecialBola = null;
   } else if (estado.etapaCalibracao === "jogadores") {
+    estado.etapaCalibracao = pontosQuadraProjetados().length > 0 ? "quadra_centros_base" : "quadra";
+  } else if (estado.etapaCalibracao === "quadra_centros_base") {
     estado.etapaCalibracao = "quadra";
   }
   atualizarInterfaceCalibracao();
@@ -1239,6 +1744,17 @@ function desfazerPontoCalibracao() {
       estado.indicePontoQuadra = indice;
       invalidarPreviewVelocidadeSaque();
     }
+  } else if (estado.etapaCalibracao === "quadra_centros_base") {
+    estado.calibracao.court_aux_points = estado.calibracao.court_aux_points ?? {};
+    if (pontoAuxiliarQuadraPorId("base_inf_centro")) {
+      delete estado.calibracao.court_aux_points.base_inf_centro;
+      estado.indiceCentroBaseCalibracao = 1;
+    } else if (pontoAuxiliarQuadraPorId("base_sup_centro")) {
+      delete estado.calibracao.court_aux_points.base_sup_centro;
+      estado.indiceCentroBaseCalibracao = 0;
+    }
+    reverterPontosQuadraProjetados();
+    invalidarPreviewVelocidadeSaque();
   } else if (estado.etapaCalibracao === "jogadores") {
     if (estado.calibracao.players.p2) {
       estado.calibracao.players.p2 = null;
@@ -1248,8 +1764,10 @@ function desfazerPontoCalibracao() {
       estado.indiceJogadorCalibracao = 0;
     }
   } else if (estado.etapaCalibracao === "bola") {
-    estado.calibracao.ball_marks.pop();
-    invalidarPreviewVelocidadeSaque();
+    const removida = estado.calibracao.ball_marks.pop();
+    if (marcacaoAfetaVelocidadeSaque(removida?.role ?? "trajectory")) {
+      invalidarPreviewVelocidadeSaque();
+    }
   }
   desenharCanvasCalibracao();
   atualizarInterfaceCalibracao();
@@ -1298,6 +1816,751 @@ function etapaBolaPorRole(role) {
   return MARCAS_BOLA_RECOMENDADAS.find((etapa) => etapa.role === role) ?? null;
 }
 
+function arredondarLog(valor, casas = 4) {
+  if (!Number.isFinite(valor)) {
+    return null;
+  }
+  return Number(valor.toFixed(casas));
+}
+
+function matrizHomografiaVideoParaQuadra(opcoes = {}) {
+  const pontos = pontosQuadraParaHomografia(opcoes);
+  const linhas = [];
+  const respostas = [];
+
+  Object.entries(PONTOS_HOMOGRAFIA_QUADRA_REAIS_M).forEach(([id, destino]) => {
+    const origem = pontos[id];
+    if (!origem || !Number.isFinite(Number(origem.x)) || !Number.isFinite(Number(origem.y))) {
+      return;
+    }
+    const x = Number(origem.x);
+    const y = Number(origem.y);
+    const [xReal, yReal] = destino;
+    linhas.push([x, y, 1, 0, 0, 0, -xReal * x, -xReal * y]);
+    respostas.push(xReal);
+    linhas.push([0, 0, 0, x, y, 1, -yReal * x, -yReal * y]);
+    respostas.push(yReal);
+  });
+
+  if (linhas.length < 8) {
+    return null;
+  }
+
+  const normal = Array.from({ length: 8 }, () => Array(8).fill(0));
+  const rhs = Array(8).fill(0);
+  linhas.forEach((linha, indiceLinha) => {
+    for (let i = 0; i < 8; i += 1) {
+      rhs[i] += linha[i] * respostas[indiceLinha];
+      for (let j = 0; j < 8; j += 1) {
+        normal[i][j] += linha[i] * linha[j];
+      }
+    }
+  });
+
+  const solucao = resolverSistemaLinear(normal, rhs);
+  return solucao ? [...solucao, 1] : null;
+}
+
+function resolverSistemaLinear(matriz, vetor) {
+  const n = vetor.length;
+  const a = matriz.map((linha, indice) => [...linha, vetor[indice]]);
+  for (let col = 0; col < n; col += 1) {
+    let pivot = col;
+    for (let linha = col + 1; linha < n; linha += 1) {
+      if (Math.abs(a[linha][col]) > Math.abs(a[pivot][col])) {
+        pivot = linha;
+      }
+    }
+    if (Math.abs(a[pivot][col]) < 1e-10) {
+      return null;
+    }
+    if (pivot !== col) {
+      [a[pivot], a[col]] = [a[col], a[pivot]];
+    }
+    const div = a[col][col];
+    for (let j = col; j <= n; j += 1) {
+      a[col][j] /= div;
+    }
+    for (let linha = 0; linha < n; linha += 1) {
+      if (linha === col) {
+        continue;
+      }
+      const fator = a[linha][col];
+      for (let j = col; j <= n; j += 1) {
+        a[linha][j] -= fator * a[col][j];
+      }
+    }
+  }
+  return a.map((linha) => linha[n]);
+}
+
+function aplicarHomografiaPonto(matriz, ponto) {
+  if (!matriz || !ponto) {
+    return null;
+  }
+  return aplicarHomografiaXY(matriz, Number(ponto.x), Number(ponto.y));
+}
+
+function aplicarHomografiaXY(matriz, x, y) {
+  if (!matriz || !Number.isFinite(x) || !Number.isFinite(y)) {
+    return null;
+  }
+  const den = matriz[6] * x + matriz[7] * y + matriz[8];
+  if (!Number.isFinite(den) || Math.abs(den) < 1e-9) {
+    return null;
+  }
+  return {
+    x: (matriz[0] * x + matriz[1] * y + matriz[2]) / den,
+    y: (matriz[3] * x + matriz[4] * y + matriz[5]) / den,
+  };
+}
+
+function inverterHomografia(matriz) {
+  if (!matriz || matriz.length !== 9) {
+    return null;
+  }
+  const [a, b, c, d, e, f, g, h, i] = matriz;
+  const A = e * i - f * h;
+  const B = c * h - b * i;
+  const C = b * f - c * e;
+  const D = f * g - d * i;
+  const E = a * i - c * g;
+  const F = c * d - a * f;
+  const G = d * h - e * g;
+  const H = b * g - a * h;
+  const I = a * e - b * d;
+  const det = a * A + b * D + c * G;
+  if (!Number.isFinite(det) || Math.abs(det) < 1e-10) {
+    return null;
+  }
+  return [A, B, C, D, E, F, G, H, I].map((valor) => valor / det);
+}
+
+function limitarPontoNormalizado(ponto) {
+  if (!ponto) {
+    return null;
+  }
+  return {
+    x: Math.max(0, Math.min(1, Number(ponto.x) || 0)),
+    y: Math.max(0, Math.min(1, Number(ponto.y) || 0)),
+  };
+}
+
+function limitarPontoProjetadoQuadra(ponto) {
+  if (!ponto) {
+    return null;
+  }
+  return {
+    x: Math.max(-0.25, Math.min(1.25, Number(ponto.x) || 0)),
+    y: Math.max(-0.25, Math.min(1.25, Number(ponto.y) || 0)),
+  };
+}
+
+function limitarPontoQuadraM(pontoM) {
+  if (!pontoM) {
+    return null;
+  }
+  return {
+    x: Math.max(0, Math.min(MEDIDAS_QUADRA_OFICIAIS.larguraTotalM, pontoM.x)),
+    y: Math.max(0, Math.min(MEDIDAS_QUADRA_OFICIAIS.comprimentoM, pontoM.y)),
+  };
+}
+
+function distanciasLinhasQuadra(pontoM) {
+  if (!pontoM) {
+    return null;
+  }
+  const m = MEDIDAS_QUADRA_OFICIAIS;
+  return {
+    lateral_externa_esquerda_m: arredondarLog(pontoM.x, 3),
+    lateral_externa_direita_m: arredondarLog(m.larguraTotalM - pontoM.x, 3),
+    lateral_interna_esquerda_m: arredondarLog(pontoM.x - m.lateralInternaEsquerdaXM, 3),
+    lateral_interna_direita_m: arredondarLog(m.lateralInternaDireitaXM - pontoM.x, 3),
+    linha_central_t_m: arredondarLog(pontoM.x - m.centroXM, 3),
+    base_superior_m: arredondarLog(pontoM.y, 3),
+    linha_servico_superior_m: arredondarLog(pontoM.y - m.servicoSuperiorYM, 3),
+    rede_m: arredondarLog(pontoM.y - m.redeYM, 3),
+    linha_servico_inferior_m: arredondarLog(m.servicoInferiorYM - pontoM.y, 3),
+    base_inferior_m: arredondarLog(m.comprimentoM - pontoM.y, 3),
+  };
+}
+
+function resumoJogadorParaLog(chave, matriz, projecao, projecaoM) {
+  const jogador = estado.calibracao?.players?.[chave];
+  if (!jogador) {
+    return null;
+  }
+  const jogadorM = aplicarHomografiaPonto(matriz, jogador);
+  return {
+    normalizado: {
+      x: arredondarLog(jogador.x),
+      y: arredondarLog(jogador.y),
+    },
+    quadra_m: jogadorM
+      ? { x: arredondarLog(jogadorM.x, 3), y: arredondarLog(jogadorM.y, 3) }
+      : null,
+    delta_imagem_norm: {
+      x: arredondarLog(projecao.x - jogador.x),
+      y: arredondarLog(projecao.y - jogador.y),
+      distancia: arredondarLog(Math.hypot(projecao.x - jogador.x, projecao.y - jogador.y)),
+    },
+    delta_quadra_m: jogadorM && projecaoM
+      ? {
+        x: arredondarLog(projecaoM.x - jogadorM.x, 3),
+        y: arredondarLog(projecaoM.y - jogadorM.y, 3),
+        distancia: arredondarLog(Math.hypot(projecaoM.x - jogadorM.x, projecaoM.y - jogadorM.y), 3),
+      }
+      : null,
+  };
+}
+
+function logReferenciaProjecaoSaque() {
+  const projecao = marcaBolaPorRole("serve_contact_ground");
+  if (!projecao) {
+    return;
+  }
+  const contato = marcaBolaPorRole("serve_contact");
+  const matriz = matrizHomografiaVideoParaQuadra();
+  const projecaoM = aplicarHomografiaPonto(matriz, projecao);
+  const contatoM = aplicarHomografiaPonto(matriz, contato);
+  const jogadores = {
+    p1: resumoJogadorParaLog("p1", matriz, projecao, projecaoM),
+    p2: resumoJogadorParaLog("p2", matriz, projecao, projecaoM),
+  };
+  const jogadorReferencia = Object.entries(jogadores)
+    .filter(([, jogador]) => jogador?.delta_imagem_norm)
+    .sort((a, b) => a[1].delta_imagem_norm.distancia - b[1].delta_imagem_norm.distancia)[0]?.[0] ?? null;
+  const payload = {
+    objetivo: "Referencia manual para futura projecao automatica do contato do saque no chao.",
+    usar_para: "Treinar/ajustar uma projecao media baseada em jogador, homografia da quadra e distancias oficiais.",
+    frame: {
+      tempo_s: arredondarLog(projecao.time_s, 3),
+      fps: arredondarLog(fpsCalibracao(), 3),
+      frame_index: estado.frameServidorIndexAtual,
+      arquivo: estado.calibracao?.video?.file_name ?? null,
+    },
+    projecao_manual: {
+      normalizado: {
+        x: arredondarLog(projecao.x),
+        y: arredondarLog(projecao.y),
+      },
+      quadra_m: projecaoM
+        ? { x: arredondarLog(projecaoM.x, 3), y: arredondarLog(projecaoM.y, 3) }
+        : null,
+      percentuais_quadra: projecaoM
+        ? {
+          x: arredondarLog(projecaoM.x / MEDIDAS_QUADRA_OFICIAIS.larguraTotalM, 4),
+          y: arredondarLog(projecaoM.y / MEDIDAS_QUADRA_OFICIAIS.comprimentoM, 4),
+        }
+        : null,
+      distancias_para_linhas: distanciasLinhasQuadra(projecaoM),
+    },
+    contato_bola: contato
+      ? {
+        normalizado: { x: arredondarLog(contato.x), y: arredondarLog(contato.y) },
+        quadra_m: contatoM ? { x: arredondarLog(contatoM.x, 3), y: arredondarLog(contatoM.y, 3) } : null,
+        delta_para_projecao_norm: {
+          x: arredondarLog(projecao.x - contato.x),
+          y: arredondarLog(projecao.y - contato.y),
+          distancia: arredondarLog(Math.hypot(projecao.x - contato.x, projecao.y - contato.y)),
+        },
+      }
+      : null,
+    jogadores,
+    jogador_referencia_sugerido: jogadorReferencia,
+    pontos_quadra_usados: Object.fromEntries(
+      Object.entries(estado.calibracao?.court_points ?? {}).map(([id, ponto]) => [
+        id,
+        { x: arredondarLog(ponto.x), y: arredondarLog(ponto.y) },
+      ]),
+    ),
+  };
+  console.info("[Tennis X-Ray] referencia_projecao_saque", payload);
+}
+
+function jogadorBaseProjecaoAutomatica() {
+  const players = estado.calibracao?.players ?? {};
+  return players[REFERENCIA_PROJECAO_SAQUE.jogadorReferencia]
+    || players.p1
+    || players.p2
+    || null;
+}
+
+function jogadorBaseProjecaoAutomaticaPorContato(contato) {
+  const players = estado.calibracao?.players ?? {};
+  const candidatos = [
+    ["p1", players.p1],
+    ["p2", players.p2],
+  ].filter(([, ponto]) => ponto && Number.isFinite(Number(ponto.x)) && Number.isFinite(Number(ponto.y)));
+  if (!contato || candidatos.length === 0) {
+    const fallback = jogadorBaseProjecaoAutomatica();
+    const chaveFallback = Object.entries(players).find(([, ponto]) => ponto === fallback)?.[0]
+      || REFERENCIA_PROJECAO_SAQUE.jogadorReferencia;
+    return fallback ? { chave: chaveFallback, ponto: fallback, distancia: null } : null;
+  }
+  const escolhido = candidatos
+    .map(([chave, ponto]) => ({
+      chave,
+      ponto,
+      distancia: distanciaPontosNormalizados(contato, ponto),
+    }))
+    .sort((a, b) => a.distancia - b.distancia)[0];
+  return escolhido ?? null;
+}
+
+function distanciaPontosNormalizados(a, b) {
+  if (!a || !b) {
+    return Infinity;
+  }
+  return Math.hypot((Number(a.x) || 0) - (Number(b.x) || 0), (Number(a.y) || 0) - (Number(b.y) || 0));
+}
+
+function pontoNormalizadoParaPixel(ponto) {
+  const canvas = elementos.canvasCalibracao;
+  const largura = Math.max(1, Number(canvas?.width) || 1);
+  const altura = Math.max(1, Number(canvas?.height) || 1);
+  return {
+    x: Number(ponto?.x || 0) * largura,
+    y: Number(ponto?.y || 0) * altura,
+  };
+}
+
+function pontoPixelParaNormalizado(ponto) {
+  const canvas = elementos.canvasCalibracao;
+  const largura = Math.max(1, Number(canvas?.width) || 1);
+  const altura = Math.max(1, Number(canvas?.height) || 1);
+  return limitarPontoNormalizado({
+    x: Number(ponto?.x || 0) / largura,
+    y: Number(ponto?.y || 0) / altura,
+  });
+}
+
+function linhaPixelPorPontosNormalizados(a, b) {
+  if (!a || !b) {
+    return null;
+  }
+  const p1 = pontoNormalizadoParaPixel(a);
+  const p2 = pontoNormalizadoParaPixel(b);
+  if (Math.hypot(p2.x - p1.x, p2.y - p1.y) < 2) {
+    return null;
+  }
+  const linha = linhaPorDoisPontos(p1, p2);
+  const norma = Math.hypot(linha.a, linha.b);
+  if (!Number.isFinite(norma) || norma < 1e-6) {
+    return null;
+  }
+  return {
+    a: linha.a / norma,
+    b: linha.b / norma,
+    c: linha.c / norma,
+  };
+}
+
+function pontoFugaPorLinhas(linhas) {
+  const validas = linhas.filter(Boolean);
+  if (validas.length < 2) {
+    return null;
+  }
+  const normal = [
+    [0, 0],
+    [0, 0],
+  ];
+  const rhs = [0, 0];
+  validas.forEach((linha) => {
+    normal[0][0] += linha.a * linha.a;
+    normal[0][1] += linha.a * linha.b;
+    normal[1][0] += linha.a * linha.b;
+    normal[1][1] += linha.b * linha.b;
+    rhs[0] += -linha.a * linha.c;
+    rhs[1] += -linha.b * linha.c;
+  });
+  const solucao = resolverSistemaLinear(normal, rhs);
+  if (!solucao || !Number.isFinite(solucao[0]) || !Number.isFinite(solucao[1])) {
+    return null;
+  }
+  return { x: solucao[0], y: solucao[1] };
+}
+
+function linhasDirecaoQuadra(pares) {
+  const pontos = estado.calibracao?.court_points ?? {};
+  return pares
+    .map(([a, b]) => linhaPixelPorPontosNormalizados(pontos[a], pontos[b]))
+    .filter(Boolean);
+}
+
+function calcularPontosFugaQuadra() {
+  const linhasLargura = linhasDirecaoQuadra([
+    ["sup_esquerda", "sup_direita"],
+    ["inf_esquerda", "inf_direita"],
+    ["rede_esquerda", "rede_direita"],
+    ["servico_sup_esquerda", "servico_sup_direita"],
+    ["servico_inf_esquerda", "servico_inf_direita"],
+  ]);
+  const linhasComprimento = linhasDirecaoQuadra([
+    ["sup_esquerda", "inf_esquerda"],
+    ["sup_direita", "inf_direita"],
+    ["servico_sup_esquerda", "servico_inf_esquerda"],
+    ["servico_sup_direita", "servico_inf_direita"],
+    ["centro_sup", "centro_inf"],
+  ]);
+
+  const fugaLargura = pontoFugaPorLinhas(linhasLargura);
+  const fugaComprimento = pontoFugaPorLinhas(linhasComprimento);
+  if (!fugaLargura || !fugaComprimento) {
+    return null;
+  }
+
+  const canvas = elementos.canvasCalibracao;
+  const centro = {
+    x: Math.max(1, Number(canvas?.width) || 1) / 2,
+    y: Math.max(1, Number(canvas?.height) || 1) / 2,
+  };
+  const eixoLargura = {
+    x: fugaLargura.x - centro.x,
+    y: fugaLargura.y - centro.y,
+  };
+  const eixoComprimento = {
+    x: fugaComprimento.x - centro.x,
+    y: fugaComprimento.y - centro.y,
+  };
+  const foco2 = -((eixoLargura.x * eixoComprimento.x) + (eixoLargura.y * eixoComprimento.y));
+  if (!Number.isFinite(foco2) || foco2 <= 1) {
+    return {
+      largura: fugaLargura,
+      comprimento: fugaComprimento,
+      vertical: null,
+      confiavel: false,
+      motivo: "foco_invalido",
+    };
+  }
+
+  const verticalRel = resolverSistemaLinear(
+    [
+      [eixoLargura.x, eixoLargura.y],
+      [eixoComprimento.x, eixoComprimento.y],
+    ],
+    [-foco2, -foco2],
+  );
+  if (!verticalRel || !Number.isFinite(verticalRel[0]) || !Number.isFinite(verticalRel[1])) {
+    return {
+      largura: fugaLargura,
+      comprimento: fugaComprimento,
+      vertical: null,
+      confiavel: false,
+      motivo: "vertical_indefinida",
+    };
+  }
+
+  const vertical = {
+    x: centro.x + verticalRel[0],
+    y: centro.y + verticalRel[1],
+  };
+  return {
+    largura: fugaLargura,
+    comprimento: fugaComprimento,
+    vertical,
+    confiavel: true,
+    linhas_largura: linhasLargura.length,
+    linhas_comprimento: linhasComprimento.length,
+  };
+}
+
+function calcularProjecaoVisualSaque(contato, jogador) {
+  if (!contato || !jogador) {
+    return null;
+  }
+  const dxJogador = Number(jogador.x) - Number(contato.x);
+  const dyJogador = Number(jogador.y) - Number(contato.y);
+  if (!Number.isFinite(dxJogador) || !Number.isFinite(dyJogador)) {
+    return null;
+  }
+
+  if (dyJogador > 0.025) {
+    const fatorVertical = Math.max(1.55, Math.min(1.9, 2.08 - (2.9 * dyJogador)));
+    const deslocamentoY = Math.max(0.075, Math.min(0.31, dyJogador * fatorVertical));
+    const deslocamentoX = Math.max(-0.035, Math.min(0.035, dxJogador * 0.15));
+    const ponto = limitarPontoNormalizado({
+      x: Number(contato.x) + deslocamentoX,
+      y: Number(contato.y) + deslocamentoY,
+    });
+    return ponto
+      ? {
+        ...ponto,
+        quadra_m: null,
+        metodo: "referencia_visual_contato_jogador",
+        visual_model: {
+          version: 1,
+          fator_vertical: arredondarLog(fatorVertical, 3),
+          delta_jogador_contato: {
+            x: arredondarLog(dxJogador),
+            y: arredondarLog(dyJogador),
+          },
+        },
+      }
+      : null;
+  }
+
+  const fallbackJogador = limitarPontoNormalizado({
+    x: Number(jogador.x) + REFERENCIA_PROJECAO_SAQUE.deltaJogadorImagemNorm.x,
+    y: Number(jogador.y) + REFERENCIA_PROJECAO_SAQUE.deltaJogadorImagemNorm.y,
+  });
+  return fallbackJogador
+    ? {
+      ...fallbackJogador,
+      quadra_m: null,
+      metodo: "referencia_jogador_imagem",
+    }
+    : null;
+}
+
+function limitarNumero(valor, minimo, maximo) {
+  return Math.max(minimo, Math.min(maximo, valor));
+}
+
+function parametroNaRetaPixel(ponto, origem, direcao, norma2) {
+  if (!ponto || !origem || !direcao || !Number.isFinite(norma2) || norma2 < 1e-9) {
+    return null;
+  }
+  return (((ponto.x - origem.x) * direcao.x) + ((ponto.y - origem.y) * direcao.y)) / norma2;
+}
+
+function limitarParametroPelaBaseDoSacador(contatoPx, direcao, norma2, parametro, jogador) {
+  const pontos = estado.calibracao?.court_points ?? {};
+  const linhaVertical = linhaPorDoisPontos(contatoPx, {
+    x: contatoPx.x + direcao.x,
+    y: contatoPx.y + direcao.y,
+  });
+  const jogadorPx = jogador ? pontoNormalizadoParaPixel(jogador) : null;
+  const pares = [
+    {
+      lado: "superior",
+      base: linhaPixelPorPontosNormalizados(pontos.sup_esquerda, pontos.sup_direita),
+      servico: linhaPixelPorPontosNormalizados(pontos.servico_sup_esquerda, pontos.servico_sup_direita),
+    },
+    {
+      lado: "inferior",
+      base: linhaPixelPorPontosNormalizados(pontos.inf_esquerda, pontos.inf_direita),
+      servico: linhaPixelPorPontosNormalizados(pontos.servico_inf_esquerda, pontos.servico_inf_direita),
+    },
+  ];
+
+  const candidatos = pares
+    .map((par) => {
+      if (!par.base || !par.servico) {
+        return null;
+      }
+      const interBase = intersecaoLinhas(linhaVertical, par.base);
+      const interServico = intersecaoLinhas(linhaVertical, par.servico);
+      const tBase = parametroNaRetaPixel(interBase, contatoPx, direcao, norma2);
+      const tServico = parametroNaRetaPixel(interServico, contatoPx, direcao, norma2);
+      if (!interBase || !interServico || !Number.isFinite(tBase) || !Number.isFinite(tServico)) {
+        return null;
+      }
+      const distanciaJogador = jogadorPx ? Math.hypot(jogadorPx.x - interBase.x, jogadorPx.y - interBase.y) : Math.abs(tBase);
+      return {
+        ...par,
+        interBase,
+        interServico,
+        tBase,
+        tServico,
+        distanciaJogador,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.distanciaJogador - b.distanciaJogador);
+
+  const escolhido = candidatos[0];
+  if (!escolhido) {
+    return { parametro, baseline_model: null };
+  }
+
+  const span = escolhido.tServico - escolhido.tBase;
+  if (!Number.isFinite(span) || Math.abs(span) < 1e-5) {
+    return { parametro, baseline_model: null };
+  }
+  const sinal = Math.sign(span) || 1;
+  const margemTras = Math.abs(span) * 0.18;
+  const avancoMaximo = Math.abs(span) * 0.42;
+  const limiteA = escolhido.tBase - (sinal * margemTras);
+  const limiteB = escolhido.tBase + (sinal * avancoMaximo);
+  const minimo = Math.min(limiteA, limiteB);
+  const maximo = Math.max(limiteA, limiteB);
+  const ajustado = limitarNumero(parametro, minimo, maximo);
+
+  return {
+    parametro: ajustado,
+    baseline_model: {
+      lado: escolhido.lado,
+      t_original: arredondarLog(parametro, 5),
+      t_ajustado: arredondarLog(ajustado, 5),
+      t_base: arredondarLog(escolhido.tBase, 5),
+      t_servico: arredondarLog(escolhido.tServico, 5),
+      limite_min: arredondarLog(minimo, 5),
+      limite_max: arredondarLog(maximo, 5),
+      base_norm: pontoPixelParaNormalizado(escolhido.interBase),
+      servico_norm: pontoPixelParaNormalizado(escolhido.interServico),
+    },
+  };
+}
+
+function calcularProjecaoPerpendicularQuadra(contato, estimativaVisual, jogador) {
+  if (!contato || !estimativaVisual) {
+    return null;
+  }
+  const fugas = calcularPontosFugaQuadra();
+  if (!fugas?.confiavel || !fugas.vertical) {
+    return null;
+  }
+  const contatoPx = pontoNormalizadoParaPixel(contato);
+  const visualPx = pontoNormalizadoParaPixel(estimativaVisual);
+  const direcao = {
+    x: fugas.vertical.x - contatoPx.x,
+    y: fugas.vertical.y - contatoPx.y,
+  };
+  const norma2 = (direcao.x * direcao.x) + (direcao.y * direcao.y);
+  if (!Number.isFinite(norma2) || norma2 < 1e-6) {
+    return null;
+  }
+  const deltaVisual = {
+    x: visualPx.x - contatoPx.x,
+    y: visualPx.y - contatoPx.y,
+  };
+  const t = ((deltaVisual.x * direcao.x) + (deltaVisual.y * direcao.y)) / norma2;
+  const limiteBase = limitarParametroPelaBaseDoSacador(contatoPx, direcao, norma2, t, jogador);
+  const parametroFinal = limiteBase.parametro;
+  const candidato = pontoPixelParaNormalizado({
+    x: contatoPx.x + (direcao.x * parametroFinal),
+    y: contatoPx.y + (direcao.y * parametroFinal),
+  });
+  if (!candidato) {
+    return null;
+  }
+
+  const distanciaVisual = distanciaPontosNormalizados(candidato, estimativaVisual);
+  const distanciaContato = distanciaPontosNormalizados(candidato, contato);
+  if (
+    distanciaContato < 0.045
+    || distanciaContato > 0.34
+    || distanciaVisual > 0.09
+    || Number(candidato.y) <= Number(contato.y) + 0.025
+  ) {
+    return null;
+  }
+
+  const matriz = matrizHomografiaVideoParaQuadra();
+  const candidatoM = aplicarHomografiaPonto(matriz, candidato);
+  const margemX = MEDIDAS_QUADRA_OFICIAIS.larguraTotalM * 0.22;
+  const margemY = MEDIDAS_QUADRA_OFICIAIS.comprimentoM * 0.16;
+  if (
+    candidatoM
+    && (
+      candidatoM.x < -margemX
+      || candidatoM.x > MEDIDAS_QUADRA_OFICIAIS.larguraTotalM + margemX
+      || candidatoM.y < -margemY
+      || candidatoM.y > MEDIDAS_QUADRA_OFICIAIS.comprimentoM + margemY
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    ...candidato,
+    quadra_m: candidatoM
+      ? { x: arredondarLog(candidatoM.x, 3), y: arredondarLog(candidatoM.y, 3) }
+      : null,
+    metodo: "perpendicular_quadra_pontos_fuga",
+    geometric_model: {
+      version: 1,
+      vertical_vanishing_px: {
+        x: arredondarLog(fugas.vertical.x, 2),
+        y: arredondarLog(fugas.vertical.y, 2),
+      },
+      width_vanishing_px: {
+        x: arredondarLog(fugas.largura.x, 2),
+        y: arredondarLog(fugas.largura.y, 2),
+      },
+      depth_vanishing_px: {
+        x: arredondarLog(fugas.comprimento.x, 2),
+        y: arredondarLog(fugas.comprimento.y, 2),
+      },
+      linhas_largura: fugas.linhas_largura,
+      linhas_comprimento: fugas.linhas_comprimento,
+      distancia_visual_norm: arredondarLog(distanciaVisual),
+      baseline_model: limiteBase.baseline_model,
+    },
+  };
+}
+
+function calcularProjecaoAutomaticaSaque(contato) {
+  const jogadorReferencia = jogadorBaseProjecaoAutomaticaPorContato(contato);
+  const jogador = jogadorReferencia?.ponto;
+  if (!contato || !jogador) {
+    return null;
+  }
+
+  const projecaoVisual = calcularProjecaoVisualSaque(contato, jogador);
+  const projecaoQuadra = calcularProjecaoPerpendicularQuadra(contato, projecaoVisual, jogador);
+  if (projecaoQuadra) {
+    return {
+      ...projecaoQuadra,
+      jogador_referencia: {
+        chave: jogadorReferencia.chave,
+        distancia_contato: arredondarLog(jogadorReferencia.distancia),
+      },
+    };
+  }
+
+  if (projecaoVisual) {
+    return {
+      ...projecaoVisual,
+      jogador_referencia: {
+        chave: jogadorReferencia.chave,
+        distancia_contato: arredondarLog(jogadorReferencia.distancia),
+      },
+    };
+  }
+
+  const fallbackContato = limitarPontoNormalizado({
+    x: contato.x + REFERENCIA_PROJECAO_SAQUE.deltaContatoImagemNorm.x,
+    y: contato.y + REFERENCIA_PROJECAO_SAQUE.deltaContatoImagemNorm.y,
+  });
+  return fallbackContato
+    ? { ...fallbackContato, quadra_m: null, metodo: "referencia_contato_imagem" }
+    : null;
+}
+
+function criarOuAtualizarProjecaoAutomaticaSaque(contato, tempo) {
+  if (!estado.calibracao || !contato) {
+    return;
+  }
+  const projecao = calcularProjecaoAutomaticaSaque(contato);
+  if (!projecao) {
+    return;
+  }
+  estado.calibracao.ball_marks = (estado.calibracao.ball_marks ?? []).filter((marca) => marca.role !== "serve_contact_ground");
+  estado.calibracao.ball_marks.push({
+    x: Number(projecao.x.toFixed(5)),
+    y: Number(projecao.y.toFixed(5)),
+    label: "Projecao automatica no chao do contato",
+    role: "serve_contact_ground",
+    sequence_id: null,
+    time_s: Number((tempo ?? contato.time_s ?? 0).toFixed(3)),
+    source: "auto_reference",
+    auto_projection: true,
+    projection_model: {
+      version: 1,
+      metodo: projecao.metodo,
+      referencia: REFERENCIA_PROJECAO_SAQUE,
+      jogador_referencia: projecao.jogador_referencia ?? null,
+      quadra_m: projecao.quadra_m ?? null,
+      visual_model: projecao.visual_model ?? null,
+      geometric_model: projecao.geometric_model ?? null,
+    },
+  });
+  logReferenciaProjecaoSaque();
+  elementos.progressoCalibracao.textContent = "Projecao automatica criada. Se quiser ajustar, clique em Projecao e marque outro ponto.";
+}
+
 function registrarMarcaBolaCalibracao(ponto, tempo, opcoes = {}) {
   estado.calibracao.ball_marks = estado.calibracao.ball_marks ?? [];
   const role = opcoes.role ?? "trajectory";
@@ -1313,8 +2576,17 @@ function registrarMarcaBolaCalibracao(ponto, tempo, opcoes = {}) {
     role,
     sequence_id: etapa?.id ?? null,
     time_s: Number(tempo.toFixed(3)),
+    source: opcoes.source ?? "manual",
   });
-  invalidarPreviewVelocidadeSaque();
+  if (role === "serve_contact") {
+    criarOuAtualizarProjecaoAutomaticaSaque(marcaBolaPorRole("serve_contact"), tempo);
+  }
+  if (role === "serve_contact_ground") {
+    logReferenciaProjecaoSaque();
+  }
+  if (marcacaoAfetaVelocidadeSaque(role)) {
+    invalidarPreviewVelocidadeSaque();
+  }
 }
 
 function saqueEspecialCompleto() {
@@ -1343,6 +2615,26 @@ function invalidarPreviewVelocidadeSaque() {
   estado.downloadSaqueJobId = null;
   estado.downloadSaqueUrl = null;
   estado.downloadSaqueErro = "";
+  if (estado.calibracao) {
+    delete estado.calibracao.serve_speed_locked;
+  }
+}
+
+function roleReferenciaSaque(role) {
+  return ["serve_contact", "serve_contact_ground", "serve_court_bounce"].includes(role);
+}
+
+function velocidadeTravadaUsaRastro() {
+  const info = estado.previewVelocidadeSaque ?? estado.calibracao?.serve_speed_locked;
+  if (!info) {
+    return false;
+  }
+  const metodo = String(info.metodo ?? "");
+  return metodo.includes("trajetoria") || Number(info.amostras_usadas ?? 0) >= 4;
+}
+
+function marcacaoAfetaVelocidadeSaque(role) {
+  return roleReferenciaSaque(role) || velocidadeTravadaUsaRastro();
 }
 
 function definirResultadoVelocidadeSaque(texto, tipo = "", permitirDownload = false) {
@@ -1428,8 +2720,14 @@ async function calcularVelocidadeSaquePreview() {
   if (!dados.velocidade_saque) {
     estado.previewVelocidadeSaque = null;
     estado.previewVelocidadeSaqueErro = dados.velocidade_saque_status?.mensagem ?? "Nao foi possivel calcular com as marcacoes atuais.";
+    delete estado.calibracao.serve_speed_locked;
   } else {
     estado.previewVelocidadeSaque = dados.velocidade_saque;
+    estado.calibracao.serve_speed_locked = {
+      ...dados.velocidade_saque,
+      source: "preview_button",
+      locked_at: new Date().toISOString(),
+    };
     estado.previewVelocidadeSaqueErro = "";
     estado.downloadSaqueUrl = null;
     estado.downloadSaqueErro = "";
@@ -1451,8 +2749,23 @@ async function calcularVelocidadeSaquePreview() {
   atualizarResultadoVelocidadeSaque();
 }
 
+function aplicarVelocidadeTravadaNaCalibracao(copia) {
+  if (estado.previewVelocidadeSaque) {
+    copia.serve_speed_locked = {
+      ...(copia.serve_speed_locked ?? {}),
+      ...estado.previewVelocidadeSaque,
+      source: "preview_button",
+    };
+  }
+  return copia;
+}
+
+function calibracaoParaAnaliseFinal() {
+  return aplicarVelocidadeTravadaNaCalibracao(JSON.parse(JSON.stringify(estado.calibracao ?? {})));
+}
+
 function calibracaoParaRenderizacaoSaque() {
-  const copia = JSON.parse(JSON.stringify(estado.calibracao ?? {}));
+  const copia = calibracaoParaAnaliseFinal();
   copia.render_options = {
     ...(copia.render_options ?? {}),
     modo: "download_saque",
@@ -1586,6 +2899,16 @@ function validarCalibracao() {
   if (pontosResolvidos < PONTOS_QUADRA_CALIBRACAO.length) {
     return { ok: false, mensagem: `Faltam ${PONTOS_QUADRA_CALIBRACAO.length - pontosResolvidos} pontos de quadra marcados ou pulados.` };
   }
+  if (complementoQuadraPendente()) {
+    if (!centrosBaseComplementoCompletos()) {
+      return { ok: false, mensagem: "Falta marcar o meio das duas linhas de base para projetar as linhas invisiveis." };
+    }
+    const requisitos = requisitosMalhaOficial();
+    if (!requisitos.ok) {
+      return { ok: false, mensagem: mensagemRequisitosMalhaOficial() };
+    }
+    return { ok: false, mensagem: "Projete a malha oficial antes de seguir para jogadores e bola." };
+  }
   if (pontosQuadra < 4) {
     return { ok: false, mensagem: "Marque pelo menos 4 pontos reais da quadra para o sistema interpolar os pontos pulados." };
   }
@@ -1616,6 +2939,7 @@ function atualizarInterfaceCalibracao() {
   const pontosQuadra = totalPontosQuadraMarcados();
   const pontosPulados = totalPontosQuadraPulados();
   const pontosResolvidos = pontosQuadra + pontosPulados;
+  const centrosBaseMarcados = PONTOS_CENTRO_BASE_CALIBRACAO.filter((ponto) => pontoAuxiliarQuadraPorId(ponto.id)).length;
   const marcasBola = estado.calibracao.ball_marks?.length ?? 0;
   const contatoSaque = marcaBolaPorRole("serve_contact");
   const projecaoContatoSaque = marcaBolaPorRole("serve_contact_ground");
@@ -1636,6 +2960,13 @@ function atualizarInterfaceCalibracao() {
     const atual = PONTOS_QUADRA_CALIBRACAO[estado.indicePontoQuadra];
     alvo = atual ? atual.label : "Quadra completa";
     instrucao = "Clique no ponto visivel ou pule se estiver fora do frame.";
+  } else if (estado.etapaCalibracao === "quadra_centros_base") {
+    avancarIndiceCentroBaseAtePendente();
+    const atual = PONTOS_CENTRO_BASE_CALIBRACAO[estado.indiceCentroBaseCalibracao];
+    alvo = atual ? atual.label : "Projetando malha oficial";
+    instrucao = estado.indiceCentroBaseCalibracao === 0
+      ? "Clique no meio visivel da primeira linha de base."
+      : "Clique no meio da outra linha de base; a linha tracejada mede o eixo central da quadra.";
   } else if (estado.etapaCalibracao === "jogadores") {
     const total = estado.calibracao.players.player_count;
     alvo = estado.indiceJogadorCalibracao === 0 ? "Clique no Jogador 1" : "Clique no Jogador 2";
@@ -1652,7 +2983,8 @@ function atualizarInterfaceCalibracao() {
   elementos.alvoCalibracao.textContent = alvo;
   elementos.instrucaoCalibracao.textContent = instrucao;
   const statusSaque = [contatoSaque, projecaoContatoSaque, primeiroToqueSaque].filter(Boolean).length;
-  elementos.progressoCalibracao.textContent = `Quadra ${pontosResolvidos}/${PONTOS_QUADRA_CALIBRACAO.length} | Jogadores ${jogadoresCalibrados() ? "ok" : "pend."} | Bola ${marcasBola}/${MIN_MARCACOES_BOLA} | Saque ${statusSaque}/3 | ${validacao.mensagem}`;
+  const statusCentroBase = complementoQuadraPendente() ? ` | Centros ${centrosBaseMarcados}/${PONTOS_CENTRO_BASE_CALIBRACAO.length}` : "";
+  elementos.progressoCalibracao.textContent = `Quadra ${pontosResolvidos}/${PONTOS_QUADRA_CALIBRACAO.length}${statusCentroBase} | Jogadores ${jogadoresCalibrados() ? "ok" : "pend."} | Bola ${marcasBola}/${MIN_MARCACOES_BOLA} | Saque ${statusSaque}/3 | ${validacao.mensagem}`;
   elementos.botaoPularPontoQuadra.disabled = estado.etapaCalibracao !== "quadra" || estado.indicePontoQuadra >= PONTOS_QUADRA_CALIBRACAO.length;
   elementos.botaoContatoRaqueteCalibracao.disabled = !saqueLiberado;
   elementos.botaoProjecaoContatoCalibracao.disabled = !saqueLiberado;
@@ -1674,6 +3006,7 @@ function desenharCanvasCalibracao() {
   const canvas = elementos.canvasCalibracao;
   const ctx = canvas.getContext("2d");
   const video = elementos.videoCalibracao;
+  atualizarEscalaVisualCanvasCalibracao();
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   const podeUsarVideoLocal = video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0 && !estado.carregandoFrameCalibracao;
@@ -1681,20 +3014,10 @@ function desenharCanvasCalibracao() {
 
   if (usarFrameServidor) {
     const imagem = estado.frameServidorImagem;
-    const view = viewportCalibracao();
-    const origemX = view.x * Math.max(imagem.naturalWidth, 1);
-    const origemY = view.y * Math.max(imagem.naturalHeight, 1);
-    const origemW = view.w * Math.max(imagem.naturalWidth, 1);
-    const origemH = view.h * Math.max(imagem.naturalHeight, 1);
-    ctx.drawImage(imagem, origemX, origemY, origemW, origemH, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(imagem, 0, 0, Math.max(imagem.naturalWidth, 1), Math.max(imagem.naturalHeight, 1), 0, 0, canvas.width, canvas.height);
   } else if (podeUsarVideoLocal) {
-    const view = viewportCalibracao();
-    const origemX = view.x * Math.max(video.videoWidth, 1);
-    const origemY = view.y * Math.max(video.videoHeight, 1);
-    const origemW = view.w * Math.max(video.videoWidth, 1);
-    const origemH = view.h * Math.max(video.videoHeight, 1);
     try {
-      ctx.drawImage(video, origemX, origemY, origemW, origemH, 0, 0, canvas.width, canvas.height);
+      ctx.drawImage(video, 0, 0, Math.max(video.videoWidth, 1), Math.max(video.videoHeight, 1), 0, 0, canvas.width, canvas.height);
     } catch (erro) {
       ctx.fillStyle = "#07131d";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -1719,12 +3042,57 @@ function desenharCanvasCalibracao() {
     }
   }
 
-  desenharLinhasCalibracao(ctx);
-  desenharPontosCalibracao(ctx);
+  atualizarOverlayCalibracao();
 }
 
-function desenharLinhasCalibracao(ctx) {
+function criarElementoSvgCalibracao(nome) {
+  return document.createElementNS("http://www.w3.org/2000/svg", nome);
+}
+
+function escalaCanvasPorPixelVisual() {
+  const medidas = medidasVisuaisCanvasCalibracao();
+  const canvas = elementos.canvasCalibracao;
+  if (!medidas || !canvas || canvas.width <= 0 || canvas.height <= 0) {
+    return 1;
+  }
+  const escalaX = (medidas.larguraBase / canvas.width) * medidas.escala;
+  const escalaY = (medidas.alturaBase / canvas.height) * medidas.escala;
+  return 1 / Math.max((escalaX + escalaY) / 2, 1e-6);
+}
+
+function atualizarOverlayCalibracao() {
+  let overlay = elementos.overlayCalibracao;
+  const canvas = elementos.canvasCalibracao;
+  if (!overlay && canvas?.parentElement) {
+    overlay = document.createElement("div");
+    overlay.id = "overlay-calibracao";
+    overlay.className = "overlay-calibracao";
+    overlay.setAttribute("aria-hidden", "true");
+    canvas.insertAdjacentElement("afterend", overlay);
+    elementos.overlayCalibracao = overlay;
+  }
+  if (!overlay || !canvas || canvas.width <= 0 || canvas.height <= 0) {
+    return;
+  }
+  atualizarEscalaVisualCanvasCalibracao();
+
+  overlay.replaceChildren();
+  const svg = criarElementoSvgCalibracao("svg");
+  svg.setAttribute("viewBox", `0 0 ${canvas.width} ${canvas.height}`);
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.classList.add("overlay-calibracao-svg");
+  overlay.appendChild(svg);
+
+  desenharLinhasCalibracao(svg);
+  desenharGuiaCentrosBase(svg);
+  desenharGuiaProjecaoSaque(svg);
+  desenharPontosCalibracao(svg);
+}
+
+function desenharLinhasCalibracao(svg) {
   const pontos = estado.calibracao?.court_points ?? {};
+  const unidadeVisual = escalaCanvasPorPixelVisual();
+  desenharLateraisInternasOficiais(svg, pontos, unidadeVisual);
   const pares = [
     ["sup_esquerda", "sup_direita"],
     ["inf_esquerda", "inf_direita"],
@@ -1735,72 +3103,301 @@ function desenharLinhasCalibracao(ctx) {
     ["sup_esquerda", "inf_esquerda"],
     ["sup_direita", "inf_direita"],
   ];
-  ctx.save();
-  ctx.strokeStyle = "rgba(180, 255, 103, 0.82)";
-  ctx.lineWidth = 2;
   pares.forEach(([a, b]) => {
     if (!pontos[a] || !pontos[b]) {
       return;
     }
-    const inicio = pontoParaCanvasCalibracao(pontos[a], ctx);
-    const fim = pontoParaCanvasCalibracao(pontos[b], ctx);
-    ctx.beginPath();
-    ctx.moveTo(inicio.x, inicio.y);
-    ctx.lineTo(fim.x, fim.y);
-    ctx.stroke();
+    const inicio = pontoParaCanvasCalibracao(pontos[a]);
+    const fim = pontoParaCanvasCalibracao(pontos[b]);
+    const linha = criarElementoSvgCalibracao("line");
+    linha.setAttribute("x1", String(inicio.x));
+    linha.setAttribute("y1", String(inicio.y));
+    linha.setAttribute("x2", String(fim.x));
+    linha.setAttribute("y2", String(fim.y));
+    linha.setAttribute("stroke", "rgba(180, 255, 103, 0.82)");
+    linha.setAttribute("stroke-width", String(2 * unidadeVisual));
+    linha.setAttribute("stroke-linecap", "round");
+    svg.appendChild(linha);
   });
-  ctx.restore();
 }
 
-function desenharPontosCalibracao(ctx) {
+function linhaPorDoisPontos(p1, p2) {
+  return {
+    a: p1.y - p2.y,
+    b: p2.x - p1.x,
+    c: p1.x * p2.y - p2.x * p1.y,
+  };
+}
+
+function segmentoLinhaNoCanvas(p1, p2) {
+  const canvas = elementos.canvasCalibracao;
+  const largura = Number(canvas?.width || 0);
+  const altura = Number(canvas?.height || 0);
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  if (!largura || !altura || Math.hypot(dx, dy) < 1e-6) {
+    return null;
+  }
+
+  const candidatos = [];
+  const adicionar = (x, y) => {
+    if (
+      Number.isFinite(x)
+      && Number.isFinite(y)
+      && x >= -1
+      && x <= largura + 1
+      && y >= -1
+      && y <= altura + 1
+      && !candidatos.some((ponto) => Math.hypot(ponto.x - x, ponto.y - y) < 1)
+    ) {
+      candidatos.push({ x: Math.max(0, Math.min(largura, x)), y: Math.max(0, Math.min(altura, y)) });
+    }
+  };
+
+  if (Math.abs(dx) > 1e-6) {
+    let t = (0 - p1.x) / dx;
+    adicionar(0, p1.y + (dy * t));
+    t = (largura - p1.x) / dx;
+    adicionar(largura, p1.y + (dy * t));
+  }
+  if (Math.abs(dy) > 1e-6) {
+    let t = (0 - p1.y) / dy;
+    adicionar(p1.x + (dx * t), 0);
+    t = (altura - p1.y) / dy;
+    adicionar(p1.x + (dx * t), altura);
+  }
+
+  if (candidatos.length < 2) {
+    return null;
+  }
+
+  let melhor = { inicio: candidatos[0], fim: candidatos[1], distancia: -1 };
+  for (let i = 0; i < candidatos.length; i += 1) {
+    for (let j = i + 1; j < candidatos.length; j += 1) {
+      const distancia = Math.hypot(candidatos[i].x - candidatos[j].x, candidatos[i].y - candidatos[j].y);
+      if (distancia > melhor.distancia) {
+        melhor = { inicio: candidatos[i], fim: candidatos[j], distancia };
+      }
+    }
+  }
+  return { inicio: melhor.inicio, fim: melhor.fim };
+}
+
+function intersecaoLinhas(l1, l2) {
+  const det = l1.a * l2.b - l2.a * l1.b;
+  if (Math.abs(det) < 1e-6) {
+    return null;
+  }
+  return {
+    x: (l1.b * l2.c - l2.b * l1.c) / det,
+    y: (l1.c * l2.a - l2.c * l1.a) / det,
+  };
+}
+
+function desenharLinhaSvg(svg, inicio, fim, cor, largura, opacidade = 1, dash = "") {
+  const linha = criarElementoSvgCalibracao("line");
+  linha.setAttribute("x1", String(inicio.x));
+  linha.setAttribute("y1", String(inicio.y));
+  linha.setAttribute("x2", String(fim.x));
+  linha.setAttribute("y2", String(fim.y));
+  linha.setAttribute("stroke", cor);
+  linha.setAttribute("stroke-width", String(largura));
+  linha.setAttribute("stroke-linecap", "round");
+  linha.setAttribute("opacity", String(opacidade));
+  if (dash) {
+    linha.setAttribute("stroke-dasharray", dash);
+  }
+  svg.appendChild(linha);
+}
+
+function desenharLateralInternaProjetada(svg, pontos, superiorId, inferiorId, unidadeVisual) {
+  const obrigatorios = ["sup_esquerda", "sup_direita", "inf_esquerda", "inf_direita", superiorId, inferiorId];
+  if (!obrigatorios.every((id) => pontos[id])) {
+    return;
+  }
+  const baseSuperior = linhaPorDoisPontos(pontoParaCanvasCalibracao(pontos.sup_esquerda), pontoParaCanvasCalibracao(pontos.sup_direita));
+  const baseInferior = linhaPorDoisPontos(pontoParaCanvasCalibracao(pontos.inf_esquerda), pontoParaCanvasCalibracao(pontos.inf_direita));
+  const lateralInterna = linhaPorDoisPontos(pontoParaCanvasCalibracao(pontos[superiorId]), pontoParaCanvasCalibracao(pontos[inferiorId]));
+  const topo = intersecaoLinhas(baseSuperior, lateralInterna);
+  const base = intersecaoLinhas(baseInferior, lateralInterna);
+  if (!topo || !base) {
+    desenharLinhaSvg(
+      svg,
+      pontoParaCanvasCalibracao(pontos[superiorId]),
+      pontoParaCanvasCalibracao(pontos[inferiorId]),
+      "rgba(180, 255, 103, 0.82)",
+      2 * unidadeVisual,
+    );
+    return;
+  }
+  desenharLinhaSvg(svg, topo, base, "rgba(180, 255, 103, 0.64)", 2 * unidadeVisual);
+}
+
+function desenharLateraisInternasOficiais(svg, pontos, unidadeVisual) {
+  desenharLateralInternaProjetada(svg, pontos, "servico_sup_esquerda", "servico_inf_esquerda", unidadeVisual);
+  desenharLateralInternaProjetada(svg, pontos, "servico_sup_direita", "servico_inf_direita", unidadeVisual);
+}
+
+function guiaCentrosBaseAtiva() {
+  return estado.etapaCalibracao === "quadra_centros_base"
+    && Boolean(
+      (pontoQuadraManualPorId("centro_sup") && pontoQuadraManualPorId("centro_inf"))
+      || pontoAuxiliarQuadraPorId("base_sup_centro")
+      || pontoAuxiliarQuadraPorId("base_inf_centro"),
+    );
+}
+
+function desenharGuiaCentrosBase(svg) {
+  if (!guiaCentrosBaseAtiva()) {
+    return;
+  }
+  const unidadeVisual = escalaCanvasPorPixelVisual();
+  const tSuperior = pontoQuadraManualPorId("centro_sup");
+  const tInferior = pontoQuadraManualPorId("centro_inf");
+  if (tSuperior && tInferior) {
+    const eixo = segmentoLinhaNoCanvas(
+      pontoParaCanvasCalibracao(tSuperior),
+      pontoParaCanvasCalibracao(tInferior),
+    );
+    if (eixo) {
+      desenharLinhaSvg(
+        svg,
+        eixo.inicio,
+        eixo.fim,
+        "rgba(34, 139, 120, 0.5)",
+        1.4 * unidadeVisual,
+        1,
+        `${8 * unidadeVisual} ${8 * unidadeVisual}`,
+      );
+    }
+  }
+  const supCentro = pontoAuxiliarQuadraPorId("base_sup_centro");
+  const infCentro = pontoAuxiliarQuadraPorId("base_inf_centro");
+  const cursor = estado.ultimoPonteiroCalibracao;
+  const inicio = supCentro || infCentro;
+  const destino = supCentro && infCentro
+    ? infCentro
+    : (cursor && Number.isFinite(cursor.x) && Number.isFinite(cursor.y) ? cursor : null);
+  if (!inicio || !destino) {
+    return;
+  }
+  const pontoInicio = pontoParaCanvasCalibracao(inicio);
+  const pontoFim = pontoParaCanvasCalibracao(destino);
+  desenharLinhaSvg(
+    svg,
+    pontoInicio,
+    pontoFim,
+    "rgba(34, 139, 120, 0.78)",
+    1.8 * unidadeVisual,
+    1,
+    `${7 * unidadeVisual} ${7 * unidadeVisual}`,
+  );
+}
+
+function guiaProjecaoSaqueAtiva() {
+  return Boolean(marcaBolaPorRole("serve_contact"))
+    && (estado.tipoEspecialBola === "serve_contact_ground" || Boolean(marcaBolaPorRole("serve_contact_ground")));
+}
+
+function desenharGuiaProjecaoSaque(svg) {
+  if (!guiaProjecaoSaqueAtiva()) {
+    return;
+  }
+  const contato = marcaBolaPorRole("serve_contact");
+  const projecao = marcaBolaPorRole("serve_contact_ground");
+  const cursor = estado.ultimoPonteiroCalibracao;
+  const destino = estado.tipoEspecialBola === "serve_contact_ground" && cursor && Number.isFinite(cursor.x) && Number.isFinite(cursor.y)
+    ? cursor
+    : projecao;
+  if (!destino || !Number.isFinite(destino.x) || !Number.isFinite(destino.y)) {
+    return;
+  }
+
+  const inicio = pontoParaCanvasCalibracao(contato);
+  const fim = pontoParaCanvasCalibracao(destino);
+  if (!inicio.visivel && !fim.visivel) {
+    return;
+  }
+
+  const unidadeVisual = escalaCanvasPorPixelVisual();
+  const linha = criarElementoSvgCalibracao("line");
+  linha.setAttribute("x1", String(inicio.x));
+  linha.setAttribute("y1", String(inicio.y));
+  linha.setAttribute("x2", String(fim.x));
+  linha.setAttribute("y2", String(fim.y));
+  linha.setAttribute("stroke", "rgba(255, 236, 173, 0.72)");
+  linha.setAttribute("stroke-width", String(1.6 * unidadeVisual));
+  linha.setAttribute("stroke-linecap", "round");
+  linha.setAttribute("stroke-dasharray", `${6 * unidadeVisual} ${6 * unidadeVisual}`);
+  svg.appendChild(linha);
+}
+
+function desenharPontosCalibracao(svg) {
   const pontos = estado.calibracao?.court_points ?? {};
   Object.entries(pontos).forEach(([id, ponto]) => {
-    desenharMarcadorCalibracao(ctx, ponto, "#b8ff67", id);
+    desenharMarcadorCalibracao(svg, ponto, "#b8ff67", id);
   });
 
   const players = estado.calibracao?.players ?? {};
   if (players.p1) {
-    desenharMarcadorCalibracao(ctx, players.p1, "#63f5c2", "Jogador 1");
+    desenharMarcadorCalibracao(svg, players.p1, "#63f5c2", "Jogador 1");
   }
   if (players.p2) {
-    desenharMarcadorCalibracao(ctx, players.p2, "#ff719f", "Jogador 2");
+    desenharMarcadorCalibracao(svg, players.p2, "#ff719f", "Jogador 2");
   }
+
+  Object.entries(estado.calibracao?.court_aux_points ?? {}).forEach(([id, ponto]) => {
+    desenharMarcadorCalibracao(svg, ponto, "#55b8a7", id);
+  });
 
   (estado.calibracao?.ball_marks ?? []).forEach((ponto, indice) => {
     const especial = TIPOS_ESPECIAIS_BOLA[ponto.role];
-    desenharMarcadorCalibracao(ctx, ponto, especial?.cor ?? "#ffe85d", `Bola ${indice + 1}`);
+    desenharMarcadorCalibracao(svg, ponto, especial?.cor ?? "#ffe85d", `Bola ${indice + 1}`);
   });
 }
 
-function desenharMarcadorCalibracao(ctx, ponto, cor, label) {
-  const { x, y, visivel } = pontoParaCanvasCalibracao(ponto, ctx);
+function desenharMarcadorCalibracao(svg, ponto, cor, label) {
+  const { x, y, visivel } = pontoParaCanvasCalibracao(ponto);
   if (!visivel) {
     return;
   }
-  ctx.save();
-  ctx.fillStyle = cor;
-  ctx.strokeStyle = "rgba(0,0,0,0.85)";
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.arc(x, y, 7, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-  ctx.strokeStyle = "rgba(255,255,255,0.72)";
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.arc(x, y, 12, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.restore();
+  const unidadeVisual = escalaCanvasPorPixelVisual();
+  const raioPrincipal = 6 * unidadeVisual;
+  const raioExterno = 11 * unidadeVisual;
+  const strokePrincipal = 2.4 * unidadeVisual;
+  const strokeExterno = 1.4 * unidadeVisual;
+
+  const anel = criarElementoSvgCalibracao("circle");
+  anel.setAttribute("cx", String(x));
+  anel.setAttribute("cy", String(y));
+  anel.setAttribute("r", String(raioExterno));
+  anel.setAttribute("fill", "none");
+  anel.setAttribute("stroke", "rgba(255,255,255,0.76)");
+  anel.setAttribute("stroke-width", String(strokeExterno));
+  svg.appendChild(anel);
+
+  const centro = criarElementoSvgCalibracao("circle");
+  centro.setAttribute("cx", String(x));
+  centro.setAttribute("cy", String(y));
+  centro.setAttribute("r", String(raioPrincipal));
+  centro.setAttribute("fill", cor);
+  centro.setAttribute("stroke", "rgba(0,0,0,0.86)");
+  centro.setAttribute("stroke-width", String(strokePrincipal));
+  centro.setAttribute("aria-label", label);
+  svg.appendChild(centro);
 }
 
-function pontoParaCanvasCalibracao(ponto, ctx) {
-  const view = viewportCalibracao();
-  const x = ((ponto.x - view.x) / view.w) * ctx.canvas.width;
-  const y = ((ponto.y - view.y) / view.h) * ctx.canvas.height;
+function pontoParaCanvasCalibracao(ponto) {
+  const canvas = elementos.canvasCalibracao;
+  if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
+    return { x: 0, y: 0, visivel: false };
+  }
+  const x = ponto.x * canvas.width;
+  const y = ponto.y * canvas.height;
   return {
     x,
     y,
-    visivel: x >= -18 && x <= ctx.canvas.width + 18 && y >= -18 && y <= ctx.canvas.height + 18,
+    visivel: x >= -24 && x <= canvas.width + 24 && y >= -24 && y <= canvas.height + 24,
   };
 }
 
@@ -1827,7 +3424,7 @@ async function enviarUpload(evento) {
   } else {
     corpo.append("arquivo", arquivo);
   }
-  corpo.append("calibracao", JSON.stringify(estado.calibracao));
+  corpo.append("calibracao", JSON.stringify(calibracaoParaAnaliseFinal()));
 
   pararPollingJob();
   desativarVideoReal();
@@ -2023,7 +3620,7 @@ elementos.canvasCalibracao.addEventListener("pointerup", finalizarPanCalibracao)
 elementos.canvasCalibracao.addEventListener("pointercancel", finalizarPanCalibracao);
 elementos.canvasCalibracao.addEventListener("wheel", (evento) => {
   evento.preventDefault();
-  const ancora = pontoTelaCanvas(evento);
+  const ancora = pontoInteracaoCanvas(evento);
   estado.ultimoPonteiroCalibracao = ancora;
   variarZoomCalibracao(evento.deltaY > 0 ? -0.2 : 0.2, ancora);
 }, { passive: false });
@@ -2036,6 +3633,21 @@ elementos.rangeZoomCalibracao.addEventListener("input", (evento) => {
 elementos.botaoZoomMenosCalibracao.addEventListener("click", () => variarZoomCalibracao(-0.4, estado.ultimoPonteiroCalibracao));
 elementos.botaoZoomMaisCalibracao.addEventListener("click", () => variarZoomCalibracao(0.4, estado.ultimoPonteiroCalibracao));
 elementos.botaoResetZoomCalibracao.addEventListener("click", () => ajustarZoomCalibracao(1));
+window.addEventListener("resize", () => {
+  atualizarEscalaVisualCanvasCalibracao();
+  atualizarOverlayCalibracao();
+});
+window.addEventListener("keydown", (evento) => {
+  if (!modalCalibracaoAberto() || evento.altKey || evento.metaKey) {
+    return;
+  }
+  if (evento.key !== "ArrowLeft" && evento.key !== "ArrowRight") {
+    return;
+  }
+  evento.preventDefault();
+  const passo = evento.ctrlKey ? 0.1 : 0.01;
+  ajustarTempoCalibracaoPorTecla(evento.key === "ArrowRight" ? passo : -passo);
+});
 elementos.botaoContatoRaqueteCalibracao.addEventListener("click", () => selecionarTipoEspecialBola("serve_contact"));
 elementos.botaoProjecaoContatoCalibracao.addEventListener("click", () => selecionarTipoEspecialBola("serve_contact_ground"));
 elementos.botaoPrimeiroToqueCalibracao.addEventListener("click", () => selecionarTipoEspecialBola("serve_court_bounce"));

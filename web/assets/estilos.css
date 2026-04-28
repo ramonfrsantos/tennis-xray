@@ -1955,19 +1955,152 @@ body:not(.tem-analise) h1 {
   max-height: 820px;
   overflow: hidden;
   border-radius: 22px;
-  display: block;
+  display: grid;
+  place-items: center;
+  background: #020706;
+}
+
+.canvas-calibracao,
+.overlay-calibracao {
+  grid-area: 1 / 1;
 }
 
 .canvas-calibracao {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+  position: relative;
+  width: auto;
+  height: auto;
   max-width: none;
   max-height: none;
-  object-fit: fill;
+  transform: translate3d(var(--pan-canvas-calibracao-x, 0px), var(--pan-canvas-calibracao-y, 0px), 0) scale(var(--escala-canvas-calibracao, 1));
+  transform-origin: center;
   cursor: crosshair;
   touch-action: none;
+  z-index: 1;
+}
+
+.overlay-calibracao {
+  position: relative;
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  transform: translate3d(var(--pan-canvas-calibracao-x, 0px), var(--pan-canvas-calibracao-y, 0px), 0) scale(var(--escala-canvas-calibracao, 1));
+  transform-origin: center;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.overlay-calibracao-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.referencia-quadra-calibracao {
+  display: grid;
+  grid-template-columns: 76px 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid rgba(26, 83, 70, 0.14);
+  border-radius: 16px;
+  background: rgba(255, 252, 246, 0.42);
+  color: #64736d;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.referencia-quadra-calibracao svg {
+  width: 76px;
+  height: 92px;
+  display: block;
+}
+
+.referencia-quadra-legenda {
+  display: grid;
+  gap: 4px;
+  line-height: 1.1;
+}
+
+.referencia-quadra-legenda span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.referencia-quadra-legenda b {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #1d352f;
+  color: #fffaf0;
+  font-size: 0.65rem;
+}
+
+.ref-externa,
+.ref-interna,
+.ref-rede,
+.ref-servico,
+.ref-t {
+  fill: none;
+  stroke-linecap: round;
+}
+
+.ref-externa {
+  stroke: rgba(29, 53, 47, 0.8);
+  stroke-width: 3;
+}
+
+.ref-interna,
+.ref-servico,
+.ref-t {
+  stroke: rgba(37, 118, 102, 0.82);
+  stroke-width: 2.4;
+}
+
+.ref-rede {
+  stroke: rgba(206, 111, 62, 0.82);
+  stroke-width: 3;
+  stroke-dasharray: 7 5;
+}
+
+.ref-ponto {
+  fill: #1d352f;
+  stroke: #fffaf0;
+  stroke-width: 1.5;
+}
+
+.ref-rede-ponto {
+  fill: #ce6f3e;
+}
+
+.ref-interno-ponto {
+  fill: #58a391;
+}
+
+.ref-t-ponto {
+  fill: #8e6f43;
+}
+
+.ref-numero {
+  font: 700 15px/1 "Bahnschrift", "Trebuchet MS", sans-serif;
+  fill: #1d352f;
+}
+
+.ref-numero-rede {
+  fill: #ce6f3e;
+}
+
+.ref-numero-interno {
+  fill: #58a391;
+}
+
+.ref-numero-t {
+  fill: #8e6f43;
 }
 
 .canvas-calibracao:active {

@@ -240,6 +240,7 @@
           <div class="calibracao-palco">
             <video id="video-calibracao" class="video-calibracao-fonte" playsinline muted preload="auto"></video>
             <canvas id="canvas-calibracao" class="canvas-calibracao" width="960" height="540"></canvas>
+            <div id="overlay-calibracao" class="overlay-calibracao" aria-hidden="true"></div>
             <input id="range-zoom-calibracao" class="controle-zoom-oculto" type="range" min="1" max="5" value="1" step="0.1" aria-hidden="true" tabindex="-1" />
             <div class="controles-zoom-calibracao" aria-label="Zoom">
               <button id="botao-zoom-menos-calibracao" class="botao secundario botao-icone" type="button" aria-label="Diminuir zoom" title="Diminuir zoom">&#8722;</button>
@@ -254,6 +255,40 @@
               <span class="rotulo-fato">Alvo</span>
               <strong id="alvo-calibracao">Aguardando video</strong>
               <p id="progresso-calibracao" class="texto-status">Selecione um video para iniciar.</p>
+            </div>
+
+            <div class="referencia-quadra-calibracao" aria-label="Referencia visual da quadra oficial">
+              <svg viewBox="0 0 210 252" role="img" aria-label="Quadra oficial: externas, internas, rede, servico e T">
+                <rect x="18" y="18" width="144" height="216" rx="4" class="ref-externa" />
+                <line x1="36" y1="18" x2="36" y2="234" class="ref-interna" />
+                <line x1="144" y1="18" x2="144" y2="234" class="ref-interna" />
+                <line x1="18" y1="126" x2="162" y2="126" class="ref-rede" />
+                <line x1="36" y1="72" x2="144" y2="72" class="ref-servico" />
+                <line x1="36" y1="180" x2="144" y2="180" class="ref-servico" />
+                <line x1="90" y1="72" x2="90" y2="180" class="ref-t" />
+                <circle cx="18" cy="18" r="3" class="ref-ponto" />
+                <circle cx="162" cy="18" r="3" class="ref-ponto" />
+                <circle cx="18" cy="234" r="3" class="ref-ponto" />
+                <circle cx="162" cy="234" r="3" class="ref-ponto" />
+                <circle cx="18" cy="126" r="3" class="ref-ponto ref-rede-ponto" />
+                <circle cx="162" cy="126" r="3" class="ref-ponto ref-rede-ponto" />
+                <circle cx="36" cy="72" r="3" class="ref-ponto ref-interno-ponto" />
+                <circle cx="144" cy="72" r="3" class="ref-ponto ref-interno-ponto" />
+                <circle cx="36" cy="180" r="3" class="ref-ponto ref-interno-ponto" />
+                <circle cx="144" cy="180" r="3" class="ref-ponto ref-interno-ponto" />
+                <circle cx="90" cy="72" r="3" class="ref-ponto ref-t-ponto" />
+                <circle cx="90" cy="180" r="3" class="ref-ponto ref-t-ponto" />
+                <text x="175" y="22" class="ref-numero">1</text>
+                <text x="175" y="128" class="ref-numero ref-numero-rede">2</text>
+                <text x="175" y="76" class="ref-numero ref-numero-interno">3</text>
+                <text x="175" y="184" class="ref-numero ref-numero-t">4</text>
+              </svg>
+              <div class="referencia-quadra-legenda">
+                <span><b>1</b> cantos externos</span>
+                <span><b>2</b> extremidades da rede</span>
+                <span><b>3</b> laterais internas + servico</span>
+                <span><b>4</b> pontos do T</span>
+              </div>
             </div>
 
             <label class="campo campo-compacto">
