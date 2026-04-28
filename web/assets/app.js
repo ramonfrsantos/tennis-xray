@@ -86,6 +86,7 @@ const estado = {
   indiceJogadorCalibracao: 0,
   zoomCalibracao: 1,
   panCalibracao: { x: 0.5, y: 0.5 },
+  ultimoPonteiroCalibracao: { x: 0.5, y: 0.5 },
   arrastandoCalibracao: false,
   dragCalibracao: null,
   suprimirCliqueCalibracao: false,
@@ -630,11 +631,12 @@ function iniciarCalibracaoArquivo(arquivo) {
   estado.indiceJogadorCalibracao = 0;
   estado.zoomCalibracao = 1;
   estado.panCalibracao = { x: 0.5, y: 0.5 };
+  estado.ultimoPonteiroCalibracao = { x: 0.5, y: 0.5 };
   estado.tipoEspecialBola = null;
   estado.previewVelocidadeSaque = null;
   estado.previewVelocidadeSaqueErro = "";
   elementos.rangeZoomCalibracao.value = "1";
-  elementos.zoomCalibracao.textContent = "Zoom 1,0x. Arraste a imagem para reposicionar.";
+  elementos.zoomCalibracao.textContent = "Zoom 1,0x";
   estado.calibracao = {
     version: 1,
     video: {
@@ -879,13 +881,21 @@ function irParaTempoCalibracao(tempo) {
 }
 
 function pontoNormalizadoCanvas(evento) {
-  const rect = elementos.canvasCalibracao.getBoundingClientRect();
+  const tela = pontoTelaCanvas(evento);
   const view = viewportCalibracao();
+  return {
+    x: Math.max(0, Math.min(1, view.x + tela.x * view.w)),
+    y: Math.max(0, Math.min(1, view.y + tela.y * view.h)),
+  };
+}
+
+function pontoTelaCanvas(evento) {
+  const rect = elementos.canvasCalibracao.getBoundingClientRect();
   const telaX = (evento.clientX - rect.left) / Math.max(rect.width, 1);
   const telaY = (evento.clientY - rect.top) / Math.max(rect.height, 1);
   return {
-    x: Math.max(0, Math.min(1, view.x + telaX * view.w)),
-    y: Math.max(0, Math.min(1, view.y + telaY * view.h)),
+    x: Math.max(0, Math.min(1, telaX)),
+    y: Math.max(0, Math.min(1, telaY)),
   };
 }
 
@@ -906,24 +916,39 @@ function viewportCalibracao() {
   };
 }
 
-function ajustarZoomCalibracao(valor, manterPan = false) {
+function ajustarZoomCalibracao(valor, manterPan = false, ancoraTela = null) {
+  const zoomAnterior = Math.max(1, Number(estado.zoomCalibracao) || 1);
+  const viewAnterior = viewportCalibracao();
+  const ancora = ancoraTela ?? estado.ultimoPonteiroCalibracao ?? { x: 0.5, y: 0.5 };
+  const ancoraNormalizada = {
+    x: viewAnterior.x + ancora.x * viewAnterior.w,
+    y: viewAnterior.y + ancora.y * viewAnterior.h,
+  };
   const zoom = Math.max(1, Math.min(5, Number(valor) || 1));
   estado.zoomCalibracao = zoom;
   if (!manterPan || zoom === 1) {
     estado.panCalibracao = { x: 0.5, y: 0.5 };
+  } else if (ancoraTela || zoom !== zoomAnterior) {
+    const largura = 1 / zoom;
+    const altura = 1 / zoom;
+    estado.panCalibracao = {
+      x: ancoraNormalizada.x + (0.5 - ancora.x) * largura,
+      y: ancoraNormalizada.y + (0.5 - ancora.y) * altura,
+    };
   } else {
     viewportCalibracao();
   }
   elementos.rangeZoomCalibracao.value = String(zoom);
-  elementos.zoomCalibracao.textContent = `Zoom ${formatarNumero(zoom, "x")}. Arraste a imagem para reposicionar.`;
+  elementos.zoomCalibracao.textContent = `Zoom ${formatarNumero(zoom, "x")}`;
   desenharCanvasCalibracao();
 }
 
-function variarZoomCalibracao(delta) {
-  ajustarZoomCalibracao(estado.zoomCalibracao + delta, true);
+function variarZoomCalibracao(delta, ancoraTela = null) {
+  ajustarZoomCalibracao(estado.zoomCalibracao + delta, true, ancoraTela);
 }
 
 function iniciarPanCalibracao(evento) {
+  estado.ultimoPonteiroCalibracao = pontoTelaCanvas(evento);
   if (estado.zoomCalibracao <= 1) {
     return;
   }
@@ -939,6 +964,7 @@ function iniciarPanCalibracao(evento) {
 }
 
 function moverPanCalibracao(evento) {
+  estado.ultimoPonteiroCalibracao = pontoTelaCanvas(evento);
   if (!estado.arrastandoCalibracao || !estado.dragCalibracao || estado.zoomCalibracao <= 1) {
     return;
   }
@@ -1573,7 +1599,6 @@ function atualizarInterfaceCalibracao() {
   const contatoSaque = marcaBolaPorRole("serve_contact");
   const projecaoContatoSaque = marcaBolaPorRole("serve_contact_ground");
   const primeiroToqueSaque = marcaBolaPorRole("serve_court_bounce");
-  const etapasBolaResolvidas = MARCAS_BOLA_RECOMENDADAS.filter((etapa) => etapaBolaResolvida(etapa)).length;
   const saqueLiberado = quadraProntaParaSaque();
   if (!saqueLiberado && estado.tipoEspecialBola) {
     estado.tipoEspecialBola = null;
@@ -1583,29 +1608,30 @@ function atualizarInterfaceCalibracao() {
 
   if (estado.tipoEspecialBola) {
     const especialSelecionado = TIPOS_ESPECIAIS_BOLA[estado.tipoEspecialBola];
-    alvo = `Clique na bolinha real: ${especialSelecionado?.label ?? "marcacao do saque"}`;
-    instrucao = "Este clique sera salvo como evento do saque e tambem sera reaproveitado pelo rastreio da bolinha quando corresponder a uma etapa do fluxo. Depois, voce volta automaticamente para a etapa anterior.";
+    alvo = especialSelecionado?.label ?? "Evento do saque";
+    instrucao = "Clique na bolinha real.";
   } else if (estado.etapaCalibracao === "quadra") {
     avancarIndiceQuadraAtePendente();
     const atual = PONTOS_QUADRA_CALIBRACAO[estado.indicePontoQuadra];
     alvo = atual ? atual.label : "Quadra completa";
-    instrucao = "Clique apenas nos pontos visiveis. Nos pontos da rede, marque a base inferior da rede no chao, sobre as linhas externas de duplas; o centro da rede nao precisa ser clicado, ele e inferido pelo sistema. Se o ponto pedido estiver fora do frame ou encoberto, use Pular ponto da quadra para o backend estimar por interpolacao.";
+    instrucao = "Clique no ponto visivel ou pule se estiver fora do frame.";
   } else if (estado.etapaCalibracao === "jogadores") {
     const total = estado.calibracao.players.player_count;
     alvo = estado.indiceJogadorCalibracao === 0 ? "Clique no Jogador 1" : "Clique no Jogador 2";
     instrucao = total < 2
-      ? "Marque o centro do corpo do unico jogador visivel no frame."
-      : "Marque o centro do corpo do Jogador 1 e depois do Jogador 2. O backend usa esses pontos como ancora e ignora pessoas fora da quadra, como juiz de cadeira e ball kids.";
+      ? "Marque o centro do corpo."
+      : "Marque o centro do corpo dos atletas.";
   } else {
     const proximaMarca = proximaEtapaBolaRastreio();
-    alvo = `Clique na bolinha real: ${proximaMarca?.label ?? "mais um frame real da bola"} (${marcasBola}/${MIN_MARCACOES_BOLA})`;
-    instrucao = "O fluxo ja salva automaticamente contato/saida da raquete e primeiro toque na quadra como eventos do saque. Use o botao de projecao no chao do contato separadamente para estimar a altura e liberar o calculo da velocidade.";
+    alvo = proximaMarca?.label ?? "Bolinha";
+    instrucao = `${marcasBola}/${MIN_MARCACOES_BOLA} pontos da bola.`;
   }
 
   const validacao = validarCalibracao();
   elementos.alvoCalibracao.textContent = alvo;
   elementos.instrucaoCalibracao.textContent = instrucao;
-  elementos.progressoCalibracao.textContent = `${pontosResolvidos}/${PONTOS_QUADRA_CALIBRACAO.length} pontos de quadra resolvidos (${pontosQuadra} marcados, ${pontosPulados} pulados), ${jogadoresCalibrados() ? "jogadores ok" : "jogadores pendentes"}, ${marcasBola}/${MIN_MARCACOES_BOLA} pontos da bola (${etapasBolaResolvidas}/${MARCAS_BOLA_RECOMENDADAS.length} etapas guiadas), saque: ${contatoSaque ? "contato ok" : "contato pendente"} / ${projecaoContatoSaque ? "projecao ok" : "projecao para altura pendente"} / ${primeiroToqueSaque ? "toque ok" : "toque pendente"}. ${validacao.mensagem}`;
+  const statusSaque = [contatoSaque, projecaoContatoSaque, primeiroToqueSaque].filter(Boolean).length;
+  elementos.progressoCalibracao.textContent = `Quadra ${pontosResolvidos}/${PONTOS_QUADRA_CALIBRACAO.length} | Jogadores ${jogadoresCalibrados() ? "ok" : "pend."} | Bola ${marcasBola}/${MIN_MARCACOES_BOLA} | Saque ${statusSaque}/3 | ${validacao.mensagem}`;
   elementos.botaoPularPontoQuadra.disabled = estado.etapaCalibracao !== "quadra" || estado.indicePontoQuadra >= PONTOS_QUADRA_CALIBRACAO.length;
   elementos.botaoContatoRaqueteCalibracao.disabled = !saqueLiberado;
   elementos.botaoProjecaoContatoCalibracao.disabled = !saqueLiberado;
@@ -1842,6 +1868,7 @@ async function consultarJobVideo(jobId) {
 
 function aplicarAnaliseReal(job) {
   estado.metadataAnaliseReal = job.metadata ?? null;
+  document.body.classList.add("tem-analise");
   if (job.analise) {
     estado.dados = job.analise;
     estado.indiceQuadro = 0;
@@ -1860,23 +1887,17 @@ function aplicarAnaliseReal(job) {
     elementos.videoWrap.classList.add("oculto");
   }
 
-  const detector = job.metadata?.detector ? ` Detector: ${job.metadata.detector}.` : "";
-  const frames = job.metadata?.frames_processados ? ` Frames analisados: ${job.metadata.frames_processados}.` : "";
-  const resolucao = job.metadata?.largura_saida && job.metadata?.altura_saida
-    ? ` Resolucao: ${job.metadata.largura_saida}x${job.metadata.altura_saida}.`
-    : "";
-  const codec = job.metadata?.codec_saida ? ` Codec: ${job.metadata.codec_saida}.` : "";
-  const crf = job.metadata?.qualidade_h264_crf ? ` CRF: ${job.metadata.qualidade_h264_crf}.` : "";
   const saqueInfo = job.metadata?.velocidade_saque;
   const saque = saqueInfo?.velocidade_kmh
-    ? ` Saque 3D: ${formatarNumero(saqueInfo.velocidade_kmh, " km/h")} (${saqueInfo.metodo}, conf. ${formatarPercentual(saqueInfo.confianca ?? 0)}).`
+    ? ` Saque: ${formatarNumero(saqueInfo.velocidade_kmh, " km/h")}.`
     : "";
-  elementos.statusUpload.textContent = `Analise real carregada.${detector}${frames}${resolucao}${codec}${crf}${saque}`;
+  elementos.statusUpload.textContent = `Analise pronta.${saque}`;
 }
 
 function desativarVideoReal() {
   estado.modoVideoReal = false;
   estado.metadataAnaliseReal = null;
+  document.body.classList.remove("tem-analise");
   elementos.videoUpload.pause();
   elementos.videoUpload.removeAttribute("src");
   elementos.videoUpload.load();
@@ -1938,7 +1959,7 @@ elementos.videoUpload.addEventListener("loadedmetadata", () => {
   if (!estado.modoVideoReal) {
     return;
   }
-  elementos.statusUpload.textContent = `Video analisado pronto para reproducao (${formatarNumero(elementos.videoUpload.duration, " s")}).`;
+  elementos.statusUpload.textContent = `Video pronto (${formatarNumero(elementos.videoUpload.duration, " s")}).`;
 });
 elementos.videoUpload.addEventListener("error", () => {
   if (!estado.modoVideoReal) {
@@ -1978,16 +1999,18 @@ elementos.canvasCalibracao.addEventListener("pointerup", finalizarPanCalibracao)
 elementos.canvasCalibracao.addEventListener("pointercancel", finalizarPanCalibracao);
 elementos.canvasCalibracao.addEventListener("wheel", (evento) => {
   evento.preventDefault();
-  variarZoomCalibracao(evento.deltaY > 0 ? -0.2 : 0.2);
+  const ancora = pontoTelaCanvas(evento);
+  estado.ultimoPonteiroCalibracao = ancora;
+  variarZoomCalibracao(evento.deltaY > 0 ? -0.2 : 0.2, ancora);
 }, { passive: false });
 elementos.rangeTempoCalibracao.addEventListener("input", (evento) => {
   irParaTempoCalibracao(evento.target.value);
 });
 elementos.rangeZoomCalibracao.addEventListener("input", (evento) => {
-  ajustarZoomCalibracao(evento.target.value, true);
+  ajustarZoomCalibracao(evento.target.value, true, estado.ultimoPonteiroCalibracao);
 });
-elementos.botaoZoomMenosCalibracao.addEventListener("click", () => variarZoomCalibracao(-0.4));
-elementos.botaoZoomMaisCalibracao.addEventListener("click", () => variarZoomCalibracao(0.4));
+elementos.botaoZoomMenosCalibracao.addEventListener("click", () => variarZoomCalibracao(-0.4, estado.ultimoPonteiroCalibracao));
+elementos.botaoZoomMaisCalibracao.addEventListener("click", () => variarZoomCalibracao(0.4, estado.ultimoPonteiroCalibracao));
 elementos.botaoResetZoomCalibracao.addEventListener("click", () => ajustarZoomCalibracao(1));
 elementos.botaoContatoRaqueteCalibracao.addEventListener("click", () => selecionarTipoEspecialBola("serve_contact"));
 elementos.botaoProjecaoContatoCalibracao.addEventListener("click", () => selecionarTipoEspecialBola("serve_contact_ground"));
@@ -2035,7 +2058,7 @@ elementos.formAnotacao.addEventListener("submit", (evento) => {
   });
 });
 
-Promise.all([carregarArquitetura(), carregarPainel()]).catch((erro) => {
-  console.error("Falha ao inicializar o painel:", erro);
+carregarArquitetura().catch((erro) => {
+  console.error("Falha ao carregar arquitetura:", erro);
 });
 

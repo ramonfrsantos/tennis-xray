@@ -227,30 +227,37 @@
       <div class="modal-calibracao-card" role="dialog" aria-modal="true" aria-labelledby="titulo-calibracao">
         <div class="modal-calibracao-topo">
           <div>
-            <p class="etiqueta">calibracao obrigatoria</p>
-            <h2 id="titulo-calibracao">Ajude o Tennis X-Ray a entender este video</h2>
+            <p class="etiqueta">calibracao</p>
+            <h2 id="titulo-calibracao">Marque os pontos do video</h2>
             <p id="instrucao-calibracao" class="texto-explicativo">
-              Clique nos pontos solicitados diretamente sobre o frame real do video.
+              Clique no alvo ativo.
             </p>
           </div>
-          <button id="botao-fechar-calibracao" class="botao secundario" type="button">Fechar</button>
+          <button id="botao-fechar-calibracao" class="botao secundario botao-icone" type="button" aria-label="Fechar calibracao">×</button>
         </div>
 
         <div class="calibracao-grid">
           <div class="calibracao-palco">
             <video id="video-calibracao" class="video-calibracao-fonte" playsinline muted preload="auto"></video>
             <canvas id="canvas-calibracao" class="canvas-calibracao" width="960" height="540"></canvas>
+            <input id="range-zoom-calibracao" class="controle-zoom-oculto" type="range" min="1" max="5" value="1" step="0.1" aria-hidden="true" tabindex="-1" />
+            <div class="controles-zoom-calibracao" aria-label="Zoom">
+              <button id="botao-zoom-menos-calibracao" class="botao secundario botao-icone" type="button" aria-label="Diminuir zoom" title="Diminuir zoom">&#8722;</button>
+              <button id="botao-zoom-mais-calibracao" class="botao secundario botao-icone" type="button" aria-label="Aumentar zoom" title="Aumentar zoom">+</button>
+              <button id="botao-reset-zoom-calibracao" class="botao secundario botao-icone" type="button" aria-label="Resetar zoom" title="Resetar zoom">&#10226;</button>
+            </div>
+            <p id="zoom-calibracao" class="texto-status zoom-calibracao-status">Zoom 1,0x</p>
           </div>
 
           <aside class="calibracao-sidebar">
             <div class="calibracao-box">
-              <span class="rotulo-fato">Etapa atual</span>
+              <span class="rotulo-fato">Alvo</span>
               <strong id="alvo-calibracao">Aguardando video</strong>
               <p id="progresso-calibracao" class="texto-status">Selecione um video para iniciar.</p>
             </div>
 
             <label class="campo campo-compacto">
-              <span>Quantos jogadores aparecem na quadra?</span>
+              <span>Jogadores</span>
               <select id="qtd-jogadores-calibracao">
                 <option value="1">1 jogador</option>
                 <option value="2" selected>2 jogadores</option>
@@ -258,40 +265,28 @@
             </label>
 
             <label class="campo campo-compacto">
-              <span>Frame usado para a marcacao</span>
+              <span>Frame</span>
               <input id="range-tempo-calibracao" type="range" min="0" max="0" value="0" step="0.01" />
             </label>
             <p id="tempo-calibracao" class="texto-status">0,00s</p>
 
-            <label class="campo campo-compacto">
-              <span>Zoom para marcar com precisao</span>
-              <input id="range-zoom-calibracao" type="range" min="1" max="5" value="1" step="0.1" />
-            </label>
-            <p id="zoom-calibracao" class="texto-status">Zoom 1,0x. Arraste a imagem para reposicionar.</p>
-
-            <div class="controles-zoom-calibracao">
-              <button id="botao-zoom-menos-calibracao" class="botao secundario" type="button">- Zoom</button>
-              <button id="botao-zoom-mais-calibracao" class="botao secundario" type="button">+ Zoom</button>
-              <button id="botao-reset-zoom-calibracao" class="botao secundario" type="button">Reset</button>
-            </div>
-
             <div class="controles-saque-calibracao" aria-label="Marcacoes especiais do saque">
-              <button id="botao-contato-raquete-calibracao" class="botao secundario" type="button" disabled>Ponto de contato com a raquete</button>
-              <button id="botao-projecao-contato-calibracao" class="botao secundario" type="button" disabled>Projecao no chao do contato</button>
-              <button id="botao-primeiro-toque-calibracao" class="botao secundario" type="button" disabled>Primeiro toque do saque na quadra</button>
-              <button id="botao-calcular-velocidade-saque" class="botao primario" type="button" disabled>Calcular velocidade</button>
+              <button id="botao-contato-raquete-calibracao" class="botao secundario" type="button" disabled title="Contato da bola com a raquete">Contato</button>
+              <button id="botao-projecao-contato-calibracao" class="botao secundario" type="button" disabled title="Projecao no chao do contato">Projecao</button>
+              <button id="botao-primeiro-toque-calibracao" class="botao secundario" type="button" disabled title="Primeiro toque do saque na quadra">Toque</button>
+              <button id="botao-calcular-velocidade-saque" class="botao primario" type="button" disabled>Velocidade</button>
               <div id="resultado-velocidade-saque" class="resultado-saque">
-                <span id="texto-resultado-velocidade-saque">Marque contato, projecao no chao e primeiro toque para calcular.</span>
+                <span id="texto-resultado-velocidade-saque">Saque: 0/3</span>
                 <button id="botao-download-video-saque" class="botao-download-saque oculto" type="button" aria-label="Baixar video com overlay de velocidade" title="Baixar video com overlay de velocidade">&#x2B07;</button>
               </div>
             </div>
 
             <div class="botoes-calibracao">
-              <button id="botao-voltar-calibracao" class="botao secundario" type="button">Voltar</button>
-              <button id="botao-desfazer-calibracao" class="botao secundario" type="button">Desfazer ponto</button>
-              <button id="botao-pular-ponto-quadra" class="botao secundario" type="button">Pular ponto da quadra</button>
-              <button id="botao-proximo-calibracao" class="botao secundario" type="button">Proxima etapa</button>
-              <button id="botao-finalizar-calibracao" class="botao primario" type="button" disabled>Usar calibracao</button>
+              <button id="botao-voltar-calibracao" class="botao secundario" type="button" title="Voltar">Voltar</button>
+              <button id="botao-desfazer-calibracao" class="botao secundario" type="button" title="Desfazer ponto">Desfazer</button>
+              <button id="botao-pular-ponto-quadra" class="botao secundario" type="button" title="Pular ponto da quadra">Pular</button>
+              <button id="botao-proximo-calibracao" class="botao secundario" type="button" title="Proxima etapa">Prox.</button>
+              <button id="botao-finalizar-calibracao" class="botao primario" type="button" disabled>Usar</button>
             </div>
           </aside>
         </div>
