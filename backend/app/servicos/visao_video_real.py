@@ -49,7 +49,7 @@ COURT_SERVICE_BOTTOM_Y_M = COURT_LENGTH_M - COURT_BASE_TO_T_M
 NET_HEIGHT_CENTER_M = 0.914
 NET_HEIGHT_SIDE_M = 1.07
 TENNIS_BALL_RADIUS_M = 0.0335
-SERVE_SPEED_OVERLAY_DURATION_S = 1.25
+SERVE_SPEED_OVERLAY_DURATION_S = 2.5
 # Recalibrado contra amostra real: 192,1 km/h estimados devem aproximar 204 km/h oficiais.
 # 1.011 * (204 / 192.1) ~= 1.074. A estabilidade temporal vem da quantizacao por frame.
 SERVE_RADAR_SPEED_FACTOR = 1.074

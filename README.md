@@ -1054,8 +1054,10 @@ Interpretação:
 O overlay de velocidade dura:
 
 ```python
-SERVE_SPEED_OVERLAY_DURATION_S = 1.25
+SERVE_SPEED_OVERLAY_DURATION_S = 2.5
 ```
+
+Se o vídeo ou o clipe renderizado terminar antes de 2,5 segundos após o início do overlay, a janela é truncada naturalmente no último frame disponível.
 
 É desenhado no cabeçalho do vídeo:
 
