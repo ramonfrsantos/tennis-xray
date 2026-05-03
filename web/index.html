@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Plataforma Biomecânica de Tênis</title>
     <link rel="stylesheet" href="/assets/estilos.css" />
-    <script type="module" src="/assets/app.js"></script>
+    <script type="module" src="/assets/app.js?v=explicit-calibration-flow"></script>
   </head>
   <body>
     <div class="aura aura-esquerda"></div>
@@ -196,7 +196,13 @@
               <span>Enviar um vídeo</span>
               <input id="campo-video" type="file" name="arquivo" accept="video/*" />
             </label>
-            <button class="botao primario" type="submit">Enviar arquivo</button>
+            <button id="botao-abrir-calibracao" class="botao secundario" type="button" disabled>
+              Calibrar video
+            </button>
+            <button id="botao-enviar-arquivo" class="botao primario" type="submit" disabled>Enviar arquivo</button>
+            <button id="botao-player-focus" class="botao secundario" type="button" disabled>
+              Download player focus
+            </button>
             <button id="botao-cancelar-job" class="botao secundario oculto" type="button">
               Finalizar processamento
             </button>
@@ -328,6 +334,78 @@
               <button id="botao-pular-ponto-quadra" class="botao secundario" type="button" title="Pular ponto da quadra">Pular</button>
               <button id="botao-proximo-calibracao" class="botao secundario" type="button" title="Proxima etapa">Prox.</button>
               <button id="botao-finalizar-calibracao" class="botao primario" type="button" disabled>Usar</button>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+
+    <div id="modal-player-focus" class="modal-calibracao modal-player-focus oculto" aria-hidden="true">
+      <div class="modal-calibracao-card modal-player-focus-card" role="dialog" aria-modal="true" aria-labelledby="titulo-player-focus">
+        <div class="modal-calibracao-topo">
+          <div>
+            <p class="etiqueta">player focus</p>
+            <h2 id="titulo-player-focus">Recorte vertical inteligente</h2>
+            <p id="instrucao-player-focus" class="texto-explicativo">Marque o jogador no frame e escolha o formato do video.</p>
+          </div>
+          <button id="botao-fechar-player-focus" class="botao secundario botao-icone" type="button" aria-label="Fechar Player Focus">&times;</button>
+        </div>
+
+        <div class="calibracao-grid player-focus-grid">
+          <div class="calibracao-palco player-focus-palco">
+            <canvas id="canvas-player-focus" class="canvas-player-focus" width="960" height="540"></canvas>
+          </div>
+
+          <aside class="calibracao-sidebar player-focus-sidebar">
+            <div class="calibracao-box">
+              <span class="rotulo-fato">Alvo</span>
+              <strong id="alvo-player-focus">Jogador 1</strong>
+              <p id="progresso-player-focus" class="texto-status">Clique no jogador em foco.</p>
+            </div>
+
+            <label class="campo campo-compacto">
+              <span>Jogadores</span>
+              <select id="qtd-jogadores-player-focus">
+                <option value="1">1 jogador</option>
+                <option value="2" selected>2 jogadores</option>
+              </select>
+            </label>
+
+            <label class="campo campo-compacto">
+              <span>Foco</span>
+              <select id="jogador-foco-player-focus">
+                <option value="p1" selected>Jogador 1</option>
+                <option value="p2">Jogador 2</option>
+              </select>
+            </label>
+
+            <label class="campo campo-compacto">
+              <span>Frame</span>
+              <input id="range-tempo-player-focus" type="range" min="0" max="0" value="0" step="0.05" />
+            </label>
+            <p id="tempo-player-focus" class="texto-status">0,00s</p>
+
+            <div class="player-focus-aspectos" role="group" aria-label="Proporcao vertical">
+              <button class="botao secundario ativo" type="button" data-aspect-player-focus="9:16">9:16</button>
+              <button class="botao secundario" type="button" data-aspect-player-focus="9:20">9:20</button>
+              <button class="botao secundario" type="button" data-aspect-player-focus="4:5">4:5</button>
+            </div>
+
+            <label class="campo campo-compacto">
+              <span>Zoom do recorte</span>
+              <input id="range-zoom-player-focus" type="range" min="1" max="2.5" value="1.35" step="0.05" />
+            </label>
+            <p id="zoom-player-focus" class="texto-status">Zoom 1,35x</p>
+
+            <div class="player-focus-marcadores">
+              <button id="botao-marcar-p1-player-focus" class="botao secundario" type="button">Marcar J1</button>
+              <button id="botao-marcar-p2-player-focus" class="botao secundario" type="button">Marcar J2</button>
+              <button id="botao-limpar-player-focus" class="botao secundario" type="button">Limpar</button>
+            </div>
+
+            <div class="botoes-calibracao">
+              <button id="botao-render-player-focus" class="botao primario" type="button" disabled>Gerar download</button>
+              <button id="botao-baixar-player-focus" class="botao secundario oculto" type="button">Baixar MP4</button>
             </div>
           </aside>
         </div>

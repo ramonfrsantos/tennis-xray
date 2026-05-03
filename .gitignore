@@ -7,4 +7,5 @@ __pycache__/
 .pytest_cache/
 uploads/*
 !uploads/.gitkeep
-
+outputs/
+.tmp/

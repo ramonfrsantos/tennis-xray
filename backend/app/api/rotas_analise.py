@@ -16,6 +16,7 @@ from fastapi.responses import Response
 from backend.app.modelos import RelatorioInteligente, RequisicaoAnaliseTexto, RespostaPainel
 from backend.app.servicos.inteligencia_contextual import InteligenciaContextual
 from backend.app.servicos.orquestrador import OrquestradorBiomecanico
+from backend.app.servicos.player_focus import gerar_video_player_focus
 from backend.app.servicos.visao_video_real import (
     VideoAnalysisCancelled,
     analisar_video_real,
@@ -36,6 +37,7 @@ CALIBRATION_DIR.mkdir(exist_ok=True)
 orquestrador = OrquestradorBiomecanico()
 inteligencia = InteligenciaContextual()
 jobs_video: dict[str, dict] = {}
+jobs_player_focus: dict[str, dict] = {}
 calibracoes_video: dict[str, dict] = {}
 frame_calibracao_cache: OrderedDict[tuple[str, int, int], bytes] = OrderedDict()
 frame_calibracao_cache_lock = Lock()
@@ -187,6 +189,47 @@ def detectar_rastro_bola_automatico(calibracao_id: str, payload: dict | None = B
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@router.post("/videos/player-focus")
+def criar_player_focus(
+    background_tasks: BackgroundTasks,
+    payload: dict = Body(...),
+):
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Configuracao invalida.")
+    calibracao_id = str(payload.get("calibracao_id") or "")
+    item = _obter_calibracao_video(calibracao_id)
+    config = {
+        "player_count": payload.get("player_count"),
+        "players": payload.get("players"),
+        "focus_player": payload.get("focus_player"),
+        "aspect_ratio": payload.get("aspect_ratio"),
+        "zoom_factor": payload.get("zoom_factor"),
+    }
+    _validar_config_player_focus(config)
+
+    job_id = uuid4().hex
+    jobs_player_focus[job_id] = {
+        "id": job_id,
+        "status": "pendente",
+        "progresso": 0,
+        "mensagem": "Player Focus recebido. Aguardando renderizacao.",
+        "calibracao_id": calibracao_id,
+        "nome_original": item.get("nome_original"),
+        "config": config,
+        "cancelar": False,
+    }
+    background_tasks.add_task(_processar_job_player_focus, job_id, Path(item["path"]), config)
+    return _serializar_job_player_focus(jobs_player_focus[job_id], incluir_resultado=False)
+
+
+@router.get("/videos/player-focus/jobs/{job_id}")
+def consultar_job_player_focus(job_id: str):
+    job = jobs_player_focus.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job Player Focus nao encontrado.")
+    return _serializar_job_player_focus(job)
+
+
 @router.post("/videos/upload")
 async def upload_video(
     background_tasks: BackgroundTasks,
@@ -251,6 +294,89 @@ def _serializar_job_video(job: dict, incluir_resultado: bool = True) -> dict:
         payload.pop("traceback", None)
         payload.pop("calibracao", None)
     return payload
+
+
+def _serializar_job_player_focus(job: dict, incluir_resultado: bool = True) -> dict:
+    payload = {chave: valor for chave, valor in job.items() if chave != "cancelar"}
+    if not incluir_resultado:
+        payload.pop("traceback", None)
+        payload.pop("config", None)
+    return payload
+
+
+def _validar_config_player_focus(config: dict) -> None:
+    aspect = str(config.get("aspect_ratio") or "")
+    if aspect not in {"9:20", "9:16", "4:5"}:
+        raise HTTPException(status_code=400, detail="Escolha uma proporcao valida: 9:20, 9:16 ou 4:5.")
+    try:
+        zoom_factor = float(config.get("zoom_factor") or 1.35)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Zoom do Player Focus invalido.") from exc
+    if not 1.0 <= zoom_factor <= 2.5:
+        raise HTTPException(status_code=400, detail="Escolha um zoom entre 1.0x e 2.5x.")
+    config["zoom_factor"] = zoom_factor
+    focus = str(config.get("focus_player") or "").lower()
+    if focus not in {"p1", "p2"}:
+        raise HTTPException(status_code=400, detail="Escolha o jogador em foco.")
+    try:
+        player_count = int(config.get("player_count") or 1)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Quantidade de jogadores invalida.") from exc
+    if player_count not in {1, 2}:
+        raise HTTPException(status_code=400, detail="Escolha 1 ou 2 jogadores.")
+    players = config.get("players")
+    if not isinstance(players, dict):
+        raise HTTPException(status_code=400, detail="Marque os jogadores no frame.")
+    required = ["p1"] if player_count == 1 else ["p1", "p2"]
+    if focus == "p2" and player_count < 2:
+        raise HTTPException(status_code=400, detail="Jogador 2 nao esta disponivel quando ha apenas 1 jogador.")
+    for key in required:
+        ponto = players.get(key)
+        if not isinstance(ponto, dict):
+            raise HTTPException(status_code=400, detail=f"Marque o {key.upper()} no frame.")
+        try:
+            x = float(ponto.get("x"))
+            y = float(ponto.get("y"))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=f"Ponto do {key.upper()} invalido.") from exc
+        if not 0 <= x <= 1 or not 0 <= y <= 1:
+            raise HTTPException(status_code=400, detail=f"Ponto do {key.upper()} deve estar dentro do frame.")
+
+
+def _processar_job_player_focus(job_id: str, caminho_video: Path, config: dict) -> None:
+    job = jobs_player_focus[job_id]
+    job["status"] = "processando"
+    job["mensagem"] = "Renderizando video vertical Player Focus."
+
+    def progresso(valor: float, mensagem: str):
+        job["progresso"] = valor
+        job["mensagem"] = mensagem
+        return not job.get("cancelar", False)
+
+    try:
+        resultado = gerar_video_player_focus(caminho_video, PROCESSED_DIR, config, progresso)
+        nome_saida = resultado.video_path.name
+        job.update(
+            {
+                "status": "concluido",
+                "progresso": 100,
+                "mensagem": "Player Focus pronto para download.",
+                "url_video": f"/uploads/processed/{nome_saida}",
+                "download_url": f"/uploads/processed/{nome_saida}",
+                "arquivo": nome_saida,
+                "metadata": resultado.metadata,
+            }
+        )
+    except Exception as exc:
+        erro_texto = str(exc) or exc.__class__.__name__
+        job.update(
+            {
+                "status": "falhou",
+                "mensagem": f"Falha ao gerar Player Focus: {erro_texto}",
+                "erro": erro_texto,
+                "traceback": traceback.format_exc(),
+            }
+        )
 
 
 def _processar_job_video(job_id: str, caminho_video: Path, calibracao: dict | None = None) -> None:
