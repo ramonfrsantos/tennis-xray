@@ -257,6 +257,11 @@
               <p id="progresso-calibracao" class="texto-status">Selecione um video para iniciar.</p>
             </div>
 
+            <div id="modo-calibracao-toggle" class="modo-calibracao-toggle" role="group" aria-label="Tipo de analise">
+              <button id="botao-modo-ponto-calibracao" class="botao secundario modo-calibracao-opcao ativo" type="button" aria-pressed="true">Ponto</button>
+              <button id="botao-modo-troca-calibracao" class="botao secundario modo-calibracao-opcao" type="button" aria-pressed="false">Troca</button>
+            </div>
+
             <div class="referencia-quadra-calibracao" aria-label="Referencia visual da quadra oficial">
               <svg viewBox="0 0 210 252" role="img" aria-label="Quadra oficial: externas, internas, rede, servico e T">
                 <rect x="18" y="18" width="144" height="216" rx="4" class="ref-externa" />
@@ -310,6 +315,7 @@
               <button id="botao-projecao-contato-calibracao" class="botao secundario" type="button" disabled title="Projecao no chao do contato">Projecao</button>
               <button id="botao-primeiro-toque-calibracao" class="botao secundario" type="button" disabled title="Primeiro toque do saque na quadra">Toque</button>
               <button id="botao-calcular-velocidade-saque" class="botao primario" type="button" disabled>Velocidade</button>
+              <button id="botao-auto-rastro-bola" class="botao secundario botao-auto-rastro" type="button" disabled title="Criar pontos-guia opcionais para o rastro da bolinha">Guias opcionais</button>
               <div id="resultado-velocidade-saque" class="resultado-saque">
                 <span id="texto-resultado-velocidade-saque">Saque: 0/3</span>
                 <button id="botao-download-video-saque" class="botao-download-saque oculto" type="button" aria-label="Baixar video com overlay de velocidade" title="Baixar video com overlay de velocidade">&#x2B07;</button>

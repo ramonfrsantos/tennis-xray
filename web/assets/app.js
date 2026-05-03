@@ -48,6 +48,9 @@ const elementos = {
   botaoProjecaoContatoCalibracao: document.querySelector("#botao-projecao-contato-calibracao"),
   botaoPrimeiroToqueCalibracao: document.querySelector("#botao-primeiro-toque-calibracao"),
   botaoCalcularVelocidadeSaque: document.querySelector("#botao-calcular-velocidade-saque"),
+  botaoAutoRastroBola: document.querySelector("#botao-auto-rastro-bola"),
+  botaoModoPontoCalibracao: document.querySelector("#botao-modo-ponto-calibracao"),
+  botaoModoTrocaCalibracao: document.querySelector("#botao-modo-troca-calibracao"),
   resultadoVelocidadeSaque: document.querySelector("#resultado-velocidade-saque"),
   textoResultadoVelocidadeSaque: document.querySelector("#texto-resultado-velocidade-saque"),
   botaoDownloadVideoSaque: document.querySelector("#botao-download-video-saque"),
@@ -72,6 +75,9 @@ const estado = {
   metadataAnaliseReal: null,
   jobAtual: null,
   pollingJob: null,
+  pollingJobEmAndamento: false,
+  falhasConsultaJob: 0,
+  carregandoAnaliseCompletaJob: null,
   arquivoUploadSelecionado: null,
   objetoUrlCalibracao: null,
   objetoUrlFrameServidor: null,
@@ -83,6 +89,7 @@ const estado = {
   frameServidorAbortController: null,
   calibracao: null,
   calibracaoPronta: false,
+  modoCalibracao: "ponto",
   etapaCalibracao: "quadra",
   indicePontoQuadra: 0,
   indiceCentroBaseCalibracao: 0,
@@ -97,6 +104,10 @@ const estado = {
   tipoEspecialBola: null,
   previewVelocidadeSaque: null,
   previewVelocidadeSaqueErro: "",
+  autoRastroBolaEmAndamento: false,
+  autoRastroBolaAguardandoInicio: false,
+  autoRastroBolaErro: "",
+  autoRastroBolaResumo: null,
   downloadSaqueEmAndamento: false,
   downloadSaqueJobId: null,
   downloadSaqueUrl: null,
@@ -175,7 +186,11 @@ const REFERENCIA_PROJECAO_SAQUE = {
   linhaCentralTM: 1.331,
 };
 
-const MIN_MARCACOES_BOLA = 12;
+const MIN_MARCACOES_BOLA = 0;
+const MIN_MARCACOES_BOLA_TROCA = 0;
+const AUTO_RASTRO_BOLA_STEP_S = 0.02;
+const AUTO_RASTRO_BOLA_MIN_CONFIDENCE = 0.30;
+const AUTO_RASTRO_BOLA_MAX_POINTS = 360;
 const FRAME_SERVIDOR_DEBOUNCE_MS = 120;
 const FRAME_SERVIDOR_PREVIEW_WIDTH = 1280;
 const TEMPOS_BOLA_SUGERIDOS = [0.04, 0.12, 0.20, 0.28, 0.36, 0.44, 0.52, 0.60, 0.68, 0.76, 0.86, 0.94];
@@ -687,6 +702,7 @@ function iniciarCalibracaoArquivo(arquivo) {
   estado.frameServidorIndexAtual = null;
   estado.frameServidorSeq += 1;
   estado.carregandoFrameCalibracao = true;
+  estado.modoCalibracao = "ponto";
   estado.etapaCalibracao = "quadra";
   estado.indicePontoQuadra = 0;
   estado.indiceCentroBaseCalibracao = 0;
@@ -701,6 +717,8 @@ function iniciarCalibracaoArquivo(arquivo) {
   elementos.zoomCalibracao.textContent = "Zoom 1,0x";
   estado.calibracao = {
     version: 1,
+    analysis_mode: estado.modoCalibracao,
+    requires_serve_metrics: true,
     video: {
       file_name: arquivo.name,
       duration_s: 0,
@@ -723,10 +741,13 @@ function iniciarCalibracaoArquivo(arquivo) {
       p2: null,
     },
     ball_tracking: {
-      mode: "visual_confirmed",
-      note: "Usar marcacoes densas como keyframes do rastreador, com pontos obrigatorios no apice do saque, contato, rede e fundo da quadra. Nao usar busca livre fora do trecho calibrado.",
+      mode: "pretrained_model_render",
+      min_marks_required: 0,
+      auto_render_detection: true,
+      note: "O rastro da bolinha e detectado durante a renderizacao com o modelo pre-treinado. Marcacoes manuais/auto-rastro sao opcionais e funcionam apenas como guias.",
     },
     serve_metrics: {
+      required: true,
       curve_factor: 1.03,
       radar_factor: 1.074,
       height_mode: "auto_from_contact_projection",
@@ -1215,6 +1236,35 @@ function registrarCliqueCalibracao(evento) {
 
   const ponto = pontoNormalizadoCanvas(evento);
   const tempo = tempoAtualMarcacaoCalibracao();
+  if (estado.autoRastroBolaAguardandoInicio) {
+    estado.autoRastroBolaAguardandoInicio = false;
+    estado.tipoEspecialBola = null;
+    estado.etapaCalibracao = "bola";
+    estado.calibracao.ball_marks = (estado.calibracao.ball_marks ?? [])
+      .filter((marca) => marca.source !== "auto_track" && marca.source !== "manual_auto_seed");
+    const seed = {
+      x: Number(ponto.x.toFixed(5)),
+      y: Number(ponto.y.toFixed(5)),
+      time_s: Number(tempo.toFixed(3)),
+    };
+    registrarMarcaBolaCalibracao(ponto, tempo, {
+      role: "trajectory",
+      label: "Inicio manual do auto-rastro",
+      source: "manual_auto_seed",
+      etapa: { id: "auto_seed", label: "Inicio manual do auto-rastro" },
+    });
+    desenharCanvasCalibracao();
+    atualizarInterfaceCalibracao();
+    detectarRastroBolaAutomatico(seed).catch((erro) => {
+      estado.autoRastroBolaErro = erro.message ?? "Falha ao seguir o rastro automatico.";
+      elementos.progressoCalibracao.textContent = estado.autoRastroBolaErro;
+      estado.autoRastroBolaEmAndamento = false;
+      desenharCanvasCalibracao();
+      atualizarInterfaceCalibracao();
+      console.error(erro);
+    });
+    return;
+  }
   if (estado.tipoEspecialBola && !quadraProntaParaSaque()) {
     estado.tipoEspecialBola = null;
     elementos.progressoCalibracao.textContent = "Conclua primeiro as medicoes da quadra antes de marcar eventos do saque.";
@@ -1652,6 +1702,7 @@ function selecionarTipoEspecialBola(tipo) {
     atualizarInterfaceCalibracao();
     return;
   }
+  estado.autoRastroBolaAguardandoInicio = false;
   estado.tipoEspecialBola = estado.tipoEspecialBola === tipo ? null : tipo;
   if (estado.tipoEspecialBola === "serve_contact_ground") {
     const contatoSaque = marcaBolaPorRole("serve_contact");
@@ -2589,6 +2640,136 @@ function registrarMarcaBolaCalibracao(ponto, tempo, opcoes = {}) {
   }
 }
 
+function podeDetectarRastroBolaAutomatico() {
+  return Boolean(
+    estado.calibracao
+    && estado.calibracaoServidorId
+    && quadraProntaParaSaque()
+    && jogadoresCalibrados()
+    && !estado.autoRastroBolaEmAndamento
+    && !estado.autoRastroBolaAguardandoInicio,
+  );
+}
+
+function prepararCalibracaoParaAutoRastro() {
+  const copia = JSON.parse(JSON.stringify(estado.calibracao ?? {}));
+  copia.ball_marks = (copia.ball_marks ?? []).filter((marca) => (
+    marca.source !== "auto_track"
+    && marca.source !== "auto_prediction"
+    && marca.source !== "manual_auto_seed"
+    && marca.role !== "serve_contact_ground"
+  ));
+  return copia;
+}
+
+function aplicarRastroAutomaticoBola(marcas) {
+  estado.calibracao.ball_marks = estado.calibracao.ball_marks ?? [];
+  const preservadas = estado.calibracao.ball_marks.filter((marca) => marca.source !== "auto_track" && marca.source !== "auto_prediction");
+  const proximidadeManualS = 0.025;
+  const novas = (marcas ?? [])
+    .map((marca, indice) => ({
+      x: Number(Math.max(0, Math.min(1, Number(marca.x))).toFixed(5)),
+      y: Number(Math.max(0, Math.min(1, Number(marca.y))).toFixed(5)),
+      label: marca.label ?? `Rastro automatico ${indice + 1}`,
+      role: "trajectory",
+      sequence_id: marca.sequence_id ?? `auto_ball_${String(indice + 1).padStart(3, "0")}`,
+      time_s: Number((Number(marca.time_s) || 0).toFixed(3)),
+      source: marca.source ?? "auto_track",
+      confidence: Number(Number(marca.confidence ?? 0).toFixed(3)),
+      frame_index: Number.isFinite(Number(marca.frame_index)) ? Number(marca.frame_index) : null,
+      detector_source: marca.detector_source ?? "auto",
+    }))
+    .filter((marca) => Number.isFinite(marca.x) && Number.isFinite(marca.y) && Number.isFinite(marca.time_s))
+    .filter((marca) => !preservadas.some((manual) => Math.abs(Number(manual.time_s ?? -999) - marca.time_s) <= proximidadeManualS));
+
+  estado.calibracao.ball_marks = [...preservadas, ...novas].sort((a, b) => Number(a.time_s ?? 0) - Number(b.time_s ?? 0));
+  if (novas.length > 0) {
+    estado.etapaCalibracao = "bola";
+    estado.tipoEspecialBola = null;
+    invalidarPreviewVelocidadeSaque();
+  }
+  return novas.length;
+}
+
+function iniciarFluxoAutoRastroBola() {
+  if (estado.autoRastroBolaAguardandoInicio) {
+    estado.autoRastroBolaAguardandoInicio = false;
+    elementos.progressoCalibracao.textContent = "Auto-rastro cancelado.";
+    atualizarInterfaceCalibracao();
+    return;
+  }
+  if (!podeDetectarRastroBolaAutomatico()) {
+    elementos.progressoCalibracao.textContent = quadraProntaParaSaque()
+      ? "Marque os jogadores antes de detectar o rastro automatico."
+      : "Conclua as medidas da quadra antes de detectar o rastro automatico.";
+    atualizarInterfaceCalibracao();
+    return;
+  }
+
+  estado.autoRastroBolaAguardandoInicio = true;
+  estado.autoRastroBolaErro = "";
+  estado.autoRastroBolaResumo = null;
+  estado.tipoEspecialBola = null;
+  estado.etapaCalibracao = "bola";
+  elementos.progressoCalibracao.textContent = "Clique na posicao inicial real da bolinha. A partir dela o app seguira em passos de 0,03s.";
+  atualizarInterfaceCalibracao();
+}
+
+async function detectarRastroBolaAutomatico(seed) {
+  if (!seed || !Number.isFinite(Number(seed.x)) || !Number.isFinite(Number(seed.y))) {
+    estado.autoRastroBolaErro = "Marque primeiro a posicao inicial da bolinha.";
+    atualizarInterfaceCalibracao();
+    return;
+  }
+
+  estado.autoRastroBolaEmAndamento = true;
+  estado.autoRastroBolaErro = "";
+  estado.autoRastroBolaResumo = null;
+  elementos.progressoCalibracao.textContent = "Seguindo a bolinha a partir da marcacao inicial...";
+  atualizarInterfaceCalibracao();
+  let mensagemFinal = "";
+
+  try {
+    const resposta = await fetch(`/api/videos/calibracao/${estado.calibracaoServidorId}/auto-rastro-bola`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        calibracao: prepararCalibracaoParaAutoRastro(),
+        seed,
+        step_s: AUTO_RASTRO_BOLA_STEP_S,
+        min_confidence: AUTO_RASTRO_BOLA_MIN_CONFIDENCE,
+        max_points: AUTO_RASTRO_BOLA_MAX_POINTS,
+      }),
+    });
+    const dados = await resposta.json();
+    if (!resposta.ok) {
+      throw new Error(dados.detail ?? "Nao foi possivel detectar o rastro automaticamente.");
+    }
+
+    const inseridas = aplicarRastroAutomaticoBola(dados.marks ?? []);
+    const qualidade = dados.quality ?? {};
+    estado.autoRastroBolaResumo = qualidade;
+    if (inseridas <= 0) {
+      estado.autoRastroBolaErro = "Nao encontrei pontos proximos confiaveis apos a marcacao inicial. Tente iniciar em um frame com a bolinha mais nitida.";
+      mensagemFinal = estado.autoRastroBolaErro;
+    } else {
+      const confianca = formatarPercentual(qualidade.confianca_media ?? 0);
+      mensagemFinal = `Rastro automatico: ${inseridas} pontos adicionados, confianca media ${confianca}. Revise e corrija se necessario.`;
+    }
+  } catch (erro) {
+    estado.autoRastroBolaErro = erro.message ?? "Falha ao detectar o rastro automatico.";
+    mensagemFinal = estado.autoRastroBolaErro;
+    console.error(erro);
+  } finally {
+    estado.autoRastroBolaEmAndamento = false;
+    desenharCanvasCalibracao();
+    atualizarInterfaceCalibracao();
+    if (mensagemFinal) {
+      elementos.progressoCalibracao.textContent = mensagemFinal;
+    }
+  }
+}
+
 function saqueEspecialCompleto() {
   return Boolean(
     marcaBolaPorRole("serve_contact")
@@ -2669,7 +2850,8 @@ function atualizarResultadoVelocidadeSaque() {
   }
   if (!pronto) {
     const faltantes = referenciasSaqueFaltantes();
-    definirResultadoVelocidadeSaque(`Falta no saque: ${faltantes.join(", ")}.`);
+    const prefixo = modoCalibracaoExigeSaque() ? "Falta no saque" : "Velocidade opcional";
+    definirResultadoVelocidadeSaque(`${prefixo}: ${faltantes.join(", ")}.`);
     return;
   }
   if (estado.previewVelocidadeSaque) {
@@ -2761,7 +2943,14 @@ function aplicarVelocidadeTravadaNaCalibracao(copia) {
 }
 
 function calibracaoParaAnaliseFinal() {
-  return aplicarVelocidadeTravadaNaCalibracao(JSON.parse(JSON.stringify(estado.calibracao ?? {})));
+  sincronizarModoCalibracao();
+  const copia = JSON.parse(JSON.stringify(estado.calibracao ?? {}));
+  copia.analysis_mode = modoCalibracaoAtual();
+  copia.requires_serve_metrics = modoCalibracaoExigeSaque();
+  copia.min_ball_marks_required = minMarcacoesBolaCalibracao();
+  copia.ball_tracking = copia.ball_tracking ?? {};
+  copia.ball_tracking.min_marks_required = minMarcacoesBolaCalibracao();
+  return aplicarVelocidadeTravadaNaCalibracao(copia);
 }
 
 function calibracaoParaRenderizacaoSaque() {
@@ -2889,10 +3078,87 @@ async function baixarVideoSaqueRenderizado() {
   atualizarResultadoVelocidadeSaque();
 }
 
+function modoCalibracaoAtual() {
+  return estado.modoCalibracao === "troca" ? "troca" : "ponto";
+}
+
+function modoCalibracaoExigeSaque() {
+  return modoCalibracaoAtual() === "ponto";
+}
+
+function minMarcacoesBolaCalibracao() {
+  return modoCalibracaoAtual() === "troca" ? MIN_MARCACOES_BOLA_TROCA : MIN_MARCACOES_BOLA;
+}
+
+function garantirSwitchModoCalibracao() {
+  const sidebar = document.querySelector(".calibracao-sidebar");
+  const alvoBox = elementos.alvoCalibracao?.closest(".calibracao-box");
+  if (!sidebar || !alvoBox) {
+    return;
+  }
+
+  let grupo = document.querySelector("#modo-calibracao-toggle");
+  if (!grupo) {
+    grupo = document.createElement("div");
+    grupo.id = "modo-calibracao-toggle";
+    grupo.className = "modo-calibracao-toggle";
+    grupo.setAttribute("role", "group");
+    grupo.setAttribute("aria-label", "Tipo de analise");
+    grupo.innerHTML = `
+      <button id="botao-modo-ponto-calibracao" class="botao secundario modo-calibracao-opcao ativo" type="button" aria-pressed="true">Ponto</button>
+      <button id="botao-modo-troca-calibracao" class="botao secundario modo-calibracao-opcao" type="button" aria-pressed="false">Troca</button>
+    `;
+  }
+
+  if (grupo.parentElement !== sidebar || grupo.previousElementSibling !== alvoBox) {
+    sidebar.insertBefore(grupo, alvoBox.nextElementSibling);
+  }
+
+  elementos.botaoModoPontoCalibracao = grupo.querySelector("#botao-modo-ponto-calibracao");
+  elementos.botaoModoTrocaCalibracao = grupo.querySelector("#botao-modo-troca-calibracao");
+  if (grupo.dataset.listenersProntos !== "true") {
+    elementos.botaoModoPontoCalibracao?.addEventListener("click", () => definirModoCalibracao("ponto"));
+    elementos.botaoModoTrocaCalibracao?.addEventListener("click", () => definirModoCalibracao("troca"));
+    grupo.dataset.listenersProntos = "true";
+  }
+}
+
+function sincronizarModoCalibracao() {
+  garantirSwitchModoCalibracao();
+  const modo = modoCalibracaoAtual();
+  if (estado.calibracao) {
+    estado.calibracao.analysis_mode = modo;
+    estado.calibracao.requires_serve_metrics = modoCalibracaoExigeSaque();
+    estado.calibracao.min_ball_marks_required = minMarcacoesBolaCalibracao();
+    estado.calibracao.serve_metrics = estado.calibracao.serve_metrics ?? {};
+    estado.calibracao.serve_metrics.required = modoCalibracaoExigeSaque();
+    estado.calibracao.ball_tracking = estado.calibracao.ball_tracking ?? {};
+    estado.calibracao.ball_tracking.min_marks_required = minMarcacoesBolaCalibracao();
+    estado.calibracao.ball_tracking.auto_render_detection = true;
+    estado.calibracao.ball_tracking.mode = "pretrained_model_render";
+  }
+  elementos.botaoModoPontoCalibracao?.classList.toggle("ativo", modo === "ponto");
+  elementos.botaoModoTrocaCalibracao?.classList.toggle("ativo", modo === "troca");
+  elementos.botaoModoPontoCalibracao?.setAttribute("aria-pressed", String(modo === "ponto"));
+  elementos.botaoModoTrocaCalibracao?.setAttribute("aria-pressed", String(modo === "troca"));
+}
+
+function definirModoCalibracao(modo) {
+  const novoModo = modo === "troca" ? "troca" : "ponto";
+  if (estado.modoCalibracao === novoModo) {
+    return;
+  }
+  estado.modoCalibracao = novoModo;
+  estado.calibracaoPronta = false;
+  sincronizarModoCalibracao();
+  atualizarInterfaceCalibracao();
+}
+
 function validarCalibracao() {
   if (!estado.calibracao) {
     return { ok: false, mensagem: "Selecione um video e conclua a calibracao." };
   }
+  sincronizarModoCalibracao();
   const pontosQuadra = totalPontosQuadraMarcados();
   const pontosPulados = totalPontosQuadraPulados();
   const pontosResolvidos = pontosQuadra + pontosPulados;
@@ -2915,12 +3181,12 @@ function validarCalibracao() {
   if (!jogadoresCalibrados()) {
     return { ok: false, mensagem: "Marque a posicao inicial do Jogador 1 e do Jogador 2 quando houver dois atletas." };
   }
-  if ((estado.calibracao.ball_marks ?? []).length < MIN_MARCACOES_BOLA) {
-    return { ok: false, mensagem: `Marque a bolinha em pelo menos ${MIN_MARCACOES_BOLA} frames diferentes.` };
-  }
   const faltantesSaque = referenciasSaqueFaltantes();
-  if (faltantesSaque.length > 0) {
+  if (modoCalibracaoExigeSaque() && faltantesSaque.length > 0) {
     return { ok: false, mensagem: `Falta marcar no saque: ${faltantesSaque.join(", ")}.` };
+  }
+  if (!modoCalibracaoExigeSaque() && faltantesSaque.length > 0) {
+    return { ok: true, mensagem: "Modo troca: saque opcional." };
   }
   return { ok: true, mensagem: "Calibracao completa." };
 }
@@ -2932,6 +3198,7 @@ function atualizarInterfaceCalibracao() {
 
   estado.calibracao.players.player_count = Number(elementos.qtdJogadoresCalibracao.value || 2);
   atualizarParametrosSaqueCalibracao();
+  sincronizarModoCalibracao();
   if (estado.calibracao.players.player_count < 2) {
     estado.calibracao.players.p2 = null;
   }
@@ -2945,13 +3212,19 @@ function atualizarInterfaceCalibracao() {
   const projecaoContatoSaque = marcaBolaPorRole("serve_contact_ground");
   const primeiroToqueSaque = marcaBolaPorRole("serve_court_bounce");
   const saqueLiberado = quadraProntaParaSaque();
+  const saqueObrigatorio = modoCalibracaoExigeSaque();
+  const modoLabel = modoCalibracaoAtual() === "troca" ? "Troca" : "Ponto";
+  const marcasAutoBola = (estado.calibracao.ball_marks ?? []).filter((marca) => marca.source === "auto_track").length;
   if (!saqueLiberado && estado.tipoEspecialBola) {
     estado.tipoEspecialBola = null;
   }
   let alvo = "";
   let instrucao = "";
 
-  if (estado.tipoEspecialBola) {
+  if (estado.autoRastroBolaAguardandoInicio) {
+    alvo = "Bolinha inicial";
+    instrucao = "Clique exatamente no primeiro ponto visivel da bolinha.";
+  } else if (estado.tipoEspecialBola) {
     const especialSelecionado = TIPOS_ESPECIAIS_BOLA[estado.tipoEspecialBola];
     alvo = especialSelecionado?.label ?? "Evento do saque";
     instrucao = "Clique na bolinha real.";
@@ -2976,28 +3249,38 @@ function atualizarInterfaceCalibracao() {
   } else {
     const proximaMarca = proximaEtapaBolaRastreio();
     alvo = proximaMarca?.label ?? "Bolinha";
-    instrucao = `${marcasBola}/${MIN_MARCACOES_BOLA} pontos da bola.`;
+    instrucao = marcasBola > 0
+      ? `${marcasBola} ponto(s)-guia da bola. O rastro final sera detectado ao renderizar.`
+      : "Rastro automatico no processamento. Marque pontos apenas se quiser guiar.";
   }
 
   const validacao = validarCalibracao();
   elementos.alvoCalibracao.textContent = alvo;
   elementos.instrucaoCalibracao.textContent = instrucao;
   const statusSaque = [contatoSaque, projecaoContatoSaque, primeiroToqueSaque].filter(Boolean).length;
+  const statusSaqueTexto = saqueObrigatorio ? `Saque ${statusSaque}/3` : `Saque opcional ${statusSaque}/3`;
   const statusCentroBase = complementoQuadraPendente() ? ` | Centros ${centrosBaseMarcados}/${PONTOS_CENTRO_BASE_CALIBRACAO.length}` : "";
-  elementos.progressoCalibracao.textContent = `Quadra ${pontosResolvidos}/${PONTOS_QUADRA_CALIBRACAO.length}${statusCentroBase} | Jogadores ${jogadoresCalibrados() ? "ok" : "pend."} | Bola ${marcasBola}/${MIN_MARCACOES_BOLA} | Saque ${statusSaque}/3 | ${validacao.mensagem}`;
+  const statusBolaTexto = marcasBola > 0 ? `Bola ${marcasBola} guia(s)` : "Bola auto";
+  elementos.progressoCalibracao.textContent = `${modoLabel} | Quadra ${pontosResolvidos}/${PONTOS_QUADRA_CALIBRACAO.length}${statusCentroBase} | Jogadores ${jogadoresCalibrados() ? "ok" : "pend."} | ${statusBolaTexto} | ${statusSaqueTexto} | ${validacao.mensagem}`;
   elementos.botaoPularPontoQuadra.disabled = estado.etapaCalibracao !== "quadra" || estado.indicePontoQuadra >= PONTOS_QUADRA_CALIBRACAO.length;
   elementos.botaoContatoRaqueteCalibracao.disabled = !saqueLiberado;
   elementos.botaoProjecaoContatoCalibracao.disabled = !saqueLiberado;
   elementos.botaoPrimeiroToqueCalibracao.disabled = !saqueLiberado;
+  elementos.botaoAutoRastroBola.disabled = estado.autoRastroBolaEmAndamento || (!podeDetectarRastroBolaAutomatico() && !estado.autoRastroBolaAguardandoInicio);
+  elementos.botaoAutoRastroBola.textContent = estado.autoRastroBolaEmAndamento
+    ? "Detectando..."
+    : (estado.autoRastroBolaAguardandoInicio ? "Clique na bolinha" : (marcasAutoBola > 0 ? `Guias auto (${marcasAutoBola})` : "Guias opcionais"));
+  elementos.botaoAutoRastroBola.classList.toggle("ativo", estado.autoRastroBolaAguardandoInicio);
+  elementos.botaoAutoRastroBola.classList.toggle("preenchido", marcasAutoBola > 0);
   elementos.botaoContatoRaqueteCalibracao.classList.toggle("ativo", estado.tipoEspecialBola === "serve_contact");
   elementos.botaoProjecaoContatoCalibracao.classList.toggle("ativo", estado.tipoEspecialBola === "serve_contact_ground");
   elementos.botaoPrimeiroToqueCalibracao.classList.toggle("ativo", estado.tipoEspecialBola === "serve_court_bounce");
   elementos.botaoContatoRaqueteCalibracao.classList.toggle("preenchido", Boolean(contatoSaque));
   elementos.botaoProjecaoContatoCalibracao.classList.toggle("preenchido", Boolean(projecaoContatoSaque));
   elementos.botaoPrimeiroToqueCalibracao.classList.toggle("preenchido", Boolean(primeiroToqueSaque));
-  elementos.botaoContatoRaqueteCalibracao.classList.toggle("faltante", saqueLiberado && !contatoSaque);
-  elementos.botaoProjecaoContatoCalibracao.classList.toggle("faltante", saqueLiberado && !projecaoContatoSaque);
-  elementos.botaoPrimeiroToqueCalibracao.classList.toggle("faltante", saqueLiberado && !primeiroToqueSaque);
+  elementos.botaoContatoRaqueteCalibracao.classList.toggle("faltante", saqueObrigatorio && saqueLiberado && !contatoSaque);
+  elementos.botaoProjecaoContatoCalibracao.classList.toggle("faltante", saqueObrigatorio && saqueLiberado && !projecaoContatoSaque);
+  elementos.botaoPrimeiroToqueCalibracao.classList.toggle("faltante", saqueObrigatorio && saqueLiberado && !primeiroToqueSaque);
   atualizarResultadoVelocidadeSaque();
   elementos.botaoFinalizarCalibracao.disabled = !validacao.ok;
 }
@@ -3352,8 +3635,22 @@ function desenharPontosCalibracao(svg) {
 
   (estado.calibracao?.ball_marks ?? []).forEach((ponto, indice) => {
     const especial = TIPOS_ESPECIAIS_BOLA[ponto.role];
-    desenharMarcadorCalibracao(svg, ponto, especial?.cor ?? "#ffe85d", `Bola ${indice + 1}`);
+    desenharMarcadorCalibracao(svg, ponto, especial?.cor ?? corMarcacaoBolaCalibracao(ponto), `Bola ${indice + 1}`);
   });
+}
+
+function corMarcacaoBolaCalibracao(ponto) {
+  if (ponto?.source !== "auto_track") {
+    return "#ffe85d";
+  }
+  const confianca = Number(ponto.confidence ?? 0);
+  if (confianca >= 0.78) {
+    return "#85f4bd";
+  }
+  if (confianca >= 0.6) {
+    return "#ffe85d";
+  }
+  return "#ffb45d";
 }
 
 function desenharMarcadorCalibracao(svg, ponto, cor, label) {
@@ -3451,24 +3748,30 @@ async function enviarUpload(evento) {
 
 function acompanharJobVideo(jobId) {
   pararPollingJob();
-  estado.pollingJob = window.setInterval(() => {
-    consultarJobVideo(jobId).catch((erro) => {
-      elementos.statusUpload.textContent = "Falha ao consultar o processamento do video.";
-      console.error(erro);
-    });
-  }, 1800);
-  consultarJobVideo(jobId).catch((erro) => {
-    elementos.statusUpload.textContent = "Falha ao consultar o processamento do video.";
-    console.error(erro);
-  });
+  estado.falhasConsultaJob = 0;
+  const consultar = () => {
+    if (estado.pollingJobEmAndamento || estado.jobAtual !== jobId) {
+      return;
+    }
+    estado.pollingJobEmAndamento = true;
+    consultarJobVideo(jobId)
+      .catch((erro) => tratarFalhaConsultaJob(jobId, erro))
+      .finally(() => {
+        if (estado.jobAtual === jobId) {
+          estado.pollingJobEmAndamento = false;
+        }
+      });
+  };
+  estado.pollingJob = window.setInterval(consultar, 1800);
+  consultar();
 }
 
 async function consultarJobVideo(jobId) {
-  const resposta = await fetch(`/api/videos/jobs/${jobId}`);
-  const job = await resposta.json();
-  if (!resposta.ok) {
-    throw new Error(job.detail ?? "Job nao encontrado.");
+  const job = await buscarJobVideo(jobId, { resumo: true });
+  if (estado.jobAtual !== jobId) {
+    return;
   }
+  estado.falhasConsultaJob = 0;
 
   const progresso = Number(job.progresso ?? 0);
   elementos.statusUpload.textContent = `${job.mensagem ?? "Processando video..."} (${formatarNumero(progresso, "%")})`;
@@ -3477,6 +3780,10 @@ async function consultarJobVideo(jobId) {
     pararPollingJob();
     elementos.botaoCancelarJob.classList.add("oculto");
     aplicarAnaliseReal(job);
+    estado.jobAtual = null;
+    if (!job.analise) {
+      carregarAnaliseCompletaJob(jobId);
+    }
     return;
   }
 
@@ -3487,13 +3794,73 @@ async function consultarJobVideo(jobId) {
   }
 }
 
-function aplicarAnaliseReal(job) {
+async function carregarAnaliseCompletaJob(jobId) {
+  if (estado.carregandoAnaliseCompletaJob === jobId) {
+    return;
+  }
+  estado.carregandoAnaliseCompletaJob = jobId;
+  try {
+    const jobCompleto = await buscarJobVideo(jobId, { resumo: false });
+    if (estado.jobAtual && estado.jobAtual !== jobId) {
+      return;
+    }
+    aplicarAnaliseReal(jobCompleto, { atualizarVideo: false });
+  } catch (erro) {
+    if (!estado.jobAtual) {
+      elementos.statusUpload.textContent = "Video pronto. Nao foi possivel carregar a analise detalhada agora.";
+    }
+    console.error(erro);
+  } finally {
+    if (estado.carregandoAnaliseCompletaJob === jobId) {
+      estado.carregandoAnaliseCompletaJob = null;
+    }
+  }
+}
+
+async function buscarJobVideo(jobId, { resumo = false } = {}) {
+  const sufixo = resumo ? "?resumo=1" : "";
+  const resposta = await fetch(`/api/videos/jobs/${jobId}${sufixo}`);
+  let job = {};
+  try {
+    job = await resposta.json();
+  } catch (erro) {
+    if (resposta.ok) {
+      throw erro;
+    }
+  }
+  if (!resposta.ok) {
+    throw new Error(job.detail ?? "Job nao encontrado.");
+  }
+  return job;
+}
+
+function tratarFalhaConsultaJob(jobId, erro) {
+  if (estado.jobAtual !== jobId) {
+    return;
+  }
+  estado.falhasConsultaJob += 1;
+  const detalhe = erro?.message ? ` ${erro.message}` : "";
+  if (estado.falhasConsultaJob < 3) {
+    elementos.statusUpload.textContent = "Reconectando ao processamento do video...";
+    return;
+  }
+  elementos.statusUpload.textContent = `Falha ao consultar o processamento do video.${detalhe}`;
+  if (/nao encontrado|não encontrado|404/i.test(detalhe)) {
+    pararPollingJob();
+    elementos.botaoCancelarJob.classList.add("oculto");
+  }
+  console.error(erro);
+}
+
+function aplicarAnaliseReal(job, { atualizarVideo = true } = {}) {
   estado.metadataAnaliseReal = job.metadata ?? null;
   document.body.classList.add("tem-analise");
+  if (job.url_video_analisado || job.analise) {
+    estado.modoVideoReal = true;
+  }
   if (job.analise) {
     estado.dados = job.analise;
     estado.indiceQuadro = 0;
-    estado.modoVideoReal = true;
     if (estado.temporizador) {
       window.clearInterval(estado.temporizador);
       estado.temporizador = null;
@@ -3501,7 +3868,7 @@ function aplicarAnaliseReal(job) {
     renderizarPainel();
   }
 
-  if (job.url_video_analisado) {
+  if (atualizarVideo && job.url_video_analisado) {
     elementos.videoUpload.src = `${job.url_video_analisado}?v=${Date.now()}`;
     elementos.videoUpload.load();
     elementos.videoUploadCard.classList.remove("oculto");
@@ -3531,6 +3898,8 @@ function pararPollingJob() {
     window.clearInterval(estado.pollingJob);
     estado.pollingJob = null;
   }
+  estado.pollingJobEmAndamento = false;
+  estado.falhasConsultaJob = 0;
 }
 
 async function interpretarAnotacao(evento) {
@@ -3648,9 +4017,13 @@ window.addEventListener("keydown", (evento) => {
   const passo = evento.ctrlKey ? 0.1 : 0.01;
   ajustarTempoCalibracaoPorTecla(evento.key === "ArrowRight" ? passo : -passo);
 });
+garantirSwitchModoCalibracao();
 elementos.botaoContatoRaqueteCalibracao.addEventListener("click", () => selecionarTipoEspecialBola("serve_contact"));
 elementos.botaoProjecaoContatoCalibracao.addEventListener("click", () => selecionarTipoEspecialBola("serve_contact_ground"));
 elementos.botaoPrimeiroToqueCalibracao.addEventListener("click", () => selecionarTipoEspecialBola("serve_court_bounce"));
+elementos.botaoAutoRastroBola.addEventListener("click", () => {
+  iniciarFluxoAutoRastroBola();
+});
 elementos.botaoCalcularVelocidadeSaque.addEventListener("click", () => {
   calcularVelocidadeSaquePreview().catch((erro) => {
     estado.previewVelocidadeSaque = null;

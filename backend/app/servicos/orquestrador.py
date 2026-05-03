@@ -48,9 +48,19 @@ class OrquestradorBiomecanico:
 
     def _montar_linha_tempo(self, quadros):
         serie: list[AmostraLinhaTempo] = []
+        ultimo_p1 = None
+        ultimo_p2 = None
         for quadro in quadros:
-            atleta_p1 = next(atleta for atleta in quadro.atletas if atleta.id_atleta == "P1")
-            atleta_p2 = next(atleta for atleta in quadro.atletas if atleta.id_atleta == "P2")
+            atleta_p1 = next((atleta for atleta in quadro.atletas if atleta.id_atleta == "P1"), None)
+            atleta_p2 = next((atleta for atleta in quadro.atletas if atleta.id_atleta == "P2"), None)
+            if atleta_p1 is not None:
+                ultimo_p1 = atleta_p1
+            if atleta_p2 is not None:
+                ultimo_p2 = atleta_p2
+            atleta_p1 = atleta_p1 or ultimo_p1
+            atleta_p2 = atleta_p2 or ultimo_p2
+            if atleta_p1 is None or atleta_p2 is None:
+                continue
             serie.append(
                 AmostraLinhaTempo(
                     tempo_s=quadro.tempo_s,

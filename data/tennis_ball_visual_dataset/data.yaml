@@ -1,0 +1,5 @@
+path: E:/Geral/Coding Space/Pessoal/Projetos/tennis-xray/data/tennis_ball_visual_dataset
+train: images/train
+val: images/val
+names:
+  0: tennis-ball

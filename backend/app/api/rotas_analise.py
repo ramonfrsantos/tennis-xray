@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import traceback
 from collections import OrderedDict
 from pathlib import Path
 from threading import Lock
@@ -18,6 +19,7 @@ from backend.app.servicos.orquestrador import OrquestradorBiomecanico
 from backend.app.servicos.visao_video_real import (
     VideoAnalysisCancelled,
     analisar_video_real,
+    detectar_rastro_bola_calibracao,
     estimar_velocidade_saque_calibracao,
 )
 
@@ -162,6 +164,29 @@ def calcular_velocidade_saque_calibrada(calibracao: dict = Body(...)):
     return estimar_velocidade_saque_calibracao(calibracao)
 
 
+@router.post("/videos/calibracao/{calibracao_id}/auto-rastro-bola")
+def detectar_rastro_bola_automatico(calibracao_id: str, payload: dict | None = Body(default=None)):
+    item = _obter_calibracao_video(calibracao_id)
+    dados = payload if isinstance(payload, dict) else {}
+    calibracao = dados.get("calibracao")
+    if calibracao is not None and not isinstance(calibracao, dict):
+        raise HTTPException(status_code=400, detail="Calibracao deve ser um objeto JSON.")
+
+    try:
+        return detectar_rastro_bola_calibracao(
+            Path(item["path"]),
+            calibracao=calibracao,
+            seed=dados.get("seed"),
+            step_s=float(dados.get("step_s", 0.02)),
+            min_confidence=float(dados.get("min_confidence", 0.36)),
+            max_points=int(dados.get("max_points", 360)),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.post("/videos/upload")
 async def upload_video(
     background_tasks: BackgroundTasks,
@@ -199,11 +224,11 @@ async def upload_video(
 
 
 @router.get("/videos/jobs/{job_id}")
-def consultar_job_video(job_id: str):
+def consultar_job_video(job_id: str, resumo: bool = Query(default=False)):
     job = jobs_video.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job de video nao encontrado.")
-    return {chave: valor for chave, valor in job.items() if chave != "cancelar"}
+    return _serializar_job_video(job, incluir_resultado=not resumo)
 
 
 @router.post("/videos/jobs/{job_id}/finalizar")
@@ -212,11 +237,20 @@ def finalizar_job_video(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="Job de video nao encontrado.")
     if job["status"] in {"concluido", "falhou", "cancelado"}:
-        return consultar_job_video(job_id)
+        return _serializar_job_video(job, incluir_resultado=False)
     job["cancelar"] = True
     job["status"] = "cancelando"
     job["mensagem"] = "Finalizacao solicitada. Encerrando o processamento com seguranca."
-    return consultar_job_video(job_id)
+    return _serializar_job_video(job, incluir_resultado=False)
+
+
+def _serializar_job_video(job: dict, incluir_resultado: bool = True) -> dict:
+    payload = {chave: valor for chave, valor in job.items() if chave != "cancelar"}
+    if not incluir_resultado:
+        payload.pop("analise", None)
+        payload.pop("traceback", None)
+        payload.pop("calibracao", None)
+    return payload
 
 
 def _processar_job_video(job_id: str, caminho_video: Path, calibracao: dict | None = None) -> None:
@@ -232,6 +266,25 @@ def _processar_job_video(job_id: str, caminho_video: Path, calibracao: dict | No
     try:
         resultado = analisar_video_real(caminho_video, PROCESSED_DIR, progresso, calibracao=calibracao)
         nome_saida = resultado.video_analisado_path.name
+        debug_path = resultado.video_analisado_path.with_suffix(".debug.json")
+        try:
+            debug_path.write_text(
+                json.dumps(
+                    {
+                        "job_id": job_id,
+                        "video_origem": str(caminho_video),
+                        "video_saida": str(resultado.video_analisado_path),
+                        "metadata": resultado.metadata,
+                        "calibracao": calibracao,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                    default=str,
+                ),
+                encoding="utf-8",
+            )
+        except OSError:
+            debug_path = None
         job.update(
             {
                 "status": "concluido",
@@ -240,6 +293,7 @@ def _processar_job_video(job_id: str, caminho_video: Path, calibracao: dict | No
                 "url_video_analisado": f"/uploads/processed/{nome_saida}",
                 "analise": resultado.analise.model_dump(mode="json"),
                 "metadata": resultado.metadata,
+                "debug_url": f"/uploads/processed/{debug_path.name}" if debug_path else None,
             }
         )
     except VideoAnalysisCancelled:
@@ -251,11 +305,13 @@ def _processar_job_video(job_id: str, caminho_video: Path, calibracao: dict | No
             }
         )
     except Exception as exc:
+        erro_texto = str(exc) or exc.__class__.__name__
         job.update(
             {
                 "status": "falhou",
-                "mensagem": f"Falha ao analisar o video real: {exc}",
-                "erro": str(exc),
+                "mensagem": f"Falha ao analisar o video real: {erro_texto}",
+                "erro": erro_texto,
+                "traceback": traceback.format_exc(),
             }
         )
 

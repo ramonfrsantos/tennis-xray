@@ -2197,6 +2197,55 @@ body:not(.tem-analise) h1 {
   min-width: 0;
 }
 
+#modo-calibracao-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  padding: 5px;
+  border: 1px solid rgba(21, 57, 49, 0.14);
+  border-radius: 999px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.68), rgba(222, 232, 222, 0.42)),
+    rgba(255, 255, 255, 0.42);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 8px 18px rgba(21, 57, 49, 0.06);
+}
+
+#modo-calibracao-toggle .modo-calibracao-opcao {
+  min-height: 35px;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent !important;
+  color: var(--texto-suave);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  box-shadow: none;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+#modo-calibracao-toggle .modo-calibracao-opcao:not(.ativo):hover {
+  background: rgba(255, 255, 255, 0.58) !important;
+  border-color: rgba(21, 57, 49, 0.12);
+  color: var(--texto);
+}
+
+#modo-calibracao-toggle .modo-calibracao-opcao.ativo {
+  border-color: rgba(15, 118, 110, 0.28);
+  background:
+    linear-gradient(135deg, rgba(19, 136, 126, 0.95), rgba(63, 141, 129, 0.92)) !important;
+  color: #f9fff7 !important;
+  box-shadow: 0 9px 18px rgba(15, 118, 110, 0.22);
+  transform: translateY(-1px);
+}
+
+#modo-calibracao-toggle .modo-calibracao-opcao:focus-visible {
+  outline: 2px solid rgba(15, 118, 110, 0.42);
+  outline-offset: 2px;
+}
+
 #tempo-calibracao {
   justify-self: end;
   margin-top: -4px;
@@ -2219,6 +2268,7 @@ body:not(.tem-analise) h1 {
 }
 
 .controles-saque-calibracao .botao:nth-child(4),
+.controles-saque-calibracao .botao-auto-rastro,
 .controles-saque-calibracao .resultado-saque {
   grid-column: 1 / -1;
 }
