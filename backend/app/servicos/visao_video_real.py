@@ -266,6 +266,8 @@ def analisar_video_real(
             calibracao=calibracao,
             frame_shape=(altura_original, largura_original, 3),
         )
+        if not _trajetoria_global_render_confiavel(trajetoria_bola_sparse, trajetoria_bola_global):
+            trajetoria_bola_global = {}
         if trajetoria_bola_global:
             detector_usado = f"{detector_usado}+global_ball_path"
         _notify(progress_callback, 8.9, f"Trajetoria global pronta ({len(trajetoria_bola_global)} pontos)")
@@ -324,6 +326,7 @@ def analisar_video_real(
         tempo_s = (frame_idx / fps_original) if fps_original > 0 else posicao_saida / target_fps
         tempo_saida_s = posicao_saida / max(target_fps, 1.0)
         bola = None
+        bola_vem_de_trajetoria_global = False
         if ocultar_bola_render:
             ultimo_bola = None
             ultimo_bola_frame_idx = None
@@ -336,8 +339,22 @@ def analisar_video_real(
             bola_global = trajetoria_bola_global.get(int(frame_idx))
             if bola_global is not None:
                 bola = bola_global
-            elif trajetoria_bola_global:
-                bola = None
+                bola_vem_de_trajetoria_global = True
+                if bola_global.source == "trajectory_prediction":
+                    bola_local = _detectar_bola(
+                        frame,
+                        ultimo_bola,
+                        frame_anterior,
+                        players_validos,
+                        ball_detection_track,
+                        prior_bola,
+                        calibracao,
+                        frame_pre_anterior,
+                        falhas_bola_consecutivas=falhas_bola_consecutivas,
+                    )
+                    if _candidato_substitui_predicao_global(bola_local, bola_global, frame.shape, players_validos, calibracao):
+                        bola = bola_local
+                        bola_vem_de_trajetoria_global = False
             elif (
                 prior_bola is None
                 and falhas_bola_consecutivas >= _int_env("TENNIS_XRAY_BALL_STALE_RESET_AFTER", 72)
@@ -351,16 +368,16 @@ def analisar_video_real(
                 ball_track.clear()
                 ball_detection_track.clear()
                 falhas_bola_consecutivas = 0
-            if bola is None and not trajetoria_bola_global and ultimo_bola_frame_idx is not None:
+            if bola is None and bola_global is None and ultimo_bola_frame_idx is not None:
                 gap_frames = abs(int(frame_idx) - ultimo_bola_frame_idx)
-                if gap_frames > max(4, int(round(fps_original * hard_reset_bola_s))):
+                if gap_frames > _hard_reset_frames_bola(fps_original, hard_reset_bola_s, ultimo_bola):
                     ultimo_bola = None
                     pending_bola_inicio = None
                     ball_track.clear()
                     ball_detection_track.clear()
-            if bola is None and not trajetoria_bola_global:
+            if bola is None and bola_global is None:
                 bola = _bola_anchor_exata(anchors_bola or [], tempo_s, frame.shape, tolerancia_anchor_bola_s)
-            if bola is None and not trajetoria_bola_global:
+            if bola is None and bola_global is None:
                 if anchors_bola and prior_bola is None and not ball_detection_track and ultimo_bola is None:
                     bola = None
                 else:
@@ -381,24 +398,19 @@ def analisar_video_real(
                 bola = _bola_estimativa_prior(prior_bola, frame.shape) if prior_bola is not None and _prior_preenchivel(prior_bola) else None
             if bola is not None:
                 bola = _suavizar_bola_com_prior(bola, prior_bola)
-            if bola is None and not trajetoria_bola_global:
+            if bola is None and bola_global is None:
                 gap_frames_pred = abs(int(frame_idx) - int(ultimo_bola_frame_idx)) if ultimo_bola_frame_idx is not None else 0
                 gap_steps_pred = max(1.0, gap_frames_pred / max(1.0, fps_original / max(target_fps, 1.0))) if gap_frames_pred else 1.0
-                rastro_base_predicao = (
-                    ball_track
-                    if desenhar_predicoes_bola and len(ball_track) >= max(3, len(ball_detection_track))
-                    else ball_detection_track
-                )
-                if rastro_base_predicao is ball_track and len(ball_track) > len(ball_detection_track):
-                    gap_steps_pred = 1.0
-                bola = _bola_predita_por_rastro(
-                    ball_track=rastro_base_predicao,
-                    ultima_bola=ultimo_bola,
-                    frame_shape=frame.shape,
-                    gap_steps=gap_steps_pred,
-                    falhas_consecutivas=falhas_bola_consecutivas,
-                    calibracao=calibracao,
-                )
+                max_predicoes_render = _max_predicoes_render_bola(ultimo_bola)
+                if desenhar_predicoes_bola and falhas_bola_consecutivas < max_predicoes_render:
+                    bola = _bola_predita_por_rastro(
+                        ball_track=ball_detection_track,
+                        ultima_bola=ultimo_bola,
+                        frame_shape=frame.shape,
+                        gap_steps=gap_steps_pred,
+                        falhas_consecutivas=falhas_bola_consecutivas,
+                        calibracao=calibracao,
+                    )
             if bola:
                 eh_predicao = bola.source == "trajectory_prediction"
                 if eh_predicao and not desenhar_predicoes_bola:
@@ -408,19 +420,22 @@ def analisar_video_real(
                     bola = None
                     falhas_bola_consecutivas += 1
                 elif (
-                    not trajetoria_bola_global
+                    bola_global is None
                     and
                     prior_bola is None
                     and not ball_detection_track
                     and bola.source not in {"manual_anchor", "calibrated_fill"}
                 ):
-                    confirmado = _confirmar_inicio_rastro_bola(
-                        pending_bola_inicio,
-                        int(frame_idx),
-                        bola,
-                        frame.shape,
-                        fps_original,
-                    )
+                    if _candidato_inicio_imediato_rastro_bola(bola):
+                        confirmado = (int(frame_idx), bola)
+                    else:
+                        confirmado = _confirmar_inicio_rastro_bola(
+                            pending_bola_inicio,
+                            int(frame_idx),
+                            bola,
+                            frame.shape,
+                            fps_original,
+                        )
                     if confirmado is None:
                         pending_bola_inicio = (int(frame_idx), bola)
                         bola = None
@@ -445,7 +460,7 @@ def analisar_video_real(
                             ]
                         )
                         max_detection_points = max(18, _int_env("TENNIS_XRAY_BALL_TRACK_DETECTION_POINTS", 96))
-                        max_track_points = max(18, _int_env("TENNIS_XRAY_BALL_TRACK_RENDER_POINTS", 160))
+                        max_track_points = max(18, _int_env("TENNIS_XRAY_BALL_TRACK_RENDER_POINTS", 90))
                         ball_detection_track = ball_detection_track[-max_detection_points:]
                         ball_track = ball_track[-max_track_points:]
                         falhas_bola_consecutivas = 0
@@ -453,19 +468,19 @@ def analisar_video_real(
                     pending_bola_inicio = None
                     if ultimo_bola_frame_idx is not None and not eh_predicao:
                         gap_frames = abs(int(frame_idx) - ultimo_bola_frame_idx)
-                        if gap_frames > max(4, int(round(fps_original * hard_reset_bola_s))):
+                        if gap_frames > _hard_reset_frames_bola(fps_original, hard_reset_bola_s, ultimo_bola):
                             ball_track.clear()
                             ball_detection_track.clear()
                     if not eh_predicao:
                         ultimo_bola = bola
                         ultimo_bola_frame_idx = int(frame_idx)
                         ball_samples.append((int(frame_idx), bola.x, bola.y))
-                        if not trajetoria_bola_global or not str(bola.source).startswith("global_"):
+                        if _bola_alimenta_tracking_local(bola, bola_vem_de_trajetoria_global):
                             ball_detection_track.append((int(bola.x), int(bola.y)))
                             max_detection_points = max(18, _int_env("TENNIS_XRAY_BALL_TRACK_DETECTION_POINTS", 96))
                             ball_detection_track = ball_detection_track[-max_detection_points:]
                     ball_track.append((int(bola.x), int(bola.y)))
-                    max_track_points = max(18, _int_env("TENNIS_XRAY_BALL_TRACK_RENDER_POINTS", 160))
+                    max_track_points = max(18, _int_env("TENNIS_XRAY_BALL_TRACK_RENDER_POINTS", 90))
                     ball_track = ball_track[-max_track_points:]
                     falhas_bola_consecutivas = falhas_bola_consecutivas + 1 if eh_predicao else 0
             else:
@@ -493,12 +508,21 @@ def analisar_video_real(
             player_tracks[atleta.id_atleta].append(ponto)
             player_tracks[atleta.id_atleta] = player_tracks[atleta.id_atleta][-22:]
 
+        ball_track_visual = _rastro_visual_bola_para_frame(
+            trajetoria_bola_global,
+            int(frame_idx),
+            bola,
+            fps_original,
+        )
+        if len(ball_track_visual) < 2:
+            ball_track_visual = ball_track[-_max_pontos_rastro_visual(fps_original):]
+
         anotado = _desenhar_frame(
             frame=frame,
             players=players,
             bola=bola,
             player_tracks=player_tracks,
-            ball_track=ball_track,
+            ball_track=ball_track_visual,
             frame_idx=int(frame_idx),
             tempo_s=tempo_s,
             detector=detector_usado,
@@ -745,14 +769,16 @@ def detectar_rastro_bola_calibracao(
         if bola is None:
             gap_frames_pred = abs(int(frame_idx) - int(ultimo_bola_frame_idx)) if ultimo_bola_frame_idx is not None else 0
             gap_steps_pred = max(1.0, gap_frames_pred / max(1.0, fps_original / max(target_fps, 1.0))) if gap_frames_pred else 1.0
-            bola = _bola_predita_por_rastro(
-                ball_track=ball_track,
-                ultima_bola=ultimo_bola,
-                frame_shape=frame.shape,
-                gap_steps=gap_steps_pred,
-                falhas_consecutivas=falhas_consecutivas,
-                calibracao=calibracao,
-            )
+            max_predicoes_render = _int_env("TENNIS_XRAY_BALL_RENDER_PREDICT_MAX_GAPS", 8)
+            if falhas_consecutivas < max_predicoes_render:
+                bola = _bola_predita_por_rastro(
+                    ball_track=ball_track,
+                    ultima_bola=ultimo_bola,
+                    frame_shape=frame.shape,
+                    gap_steps=gap_steps_pred,
+                    falhas_consecutivas=falhas_consecutivas,
+                    calibracao=calibracao,
+                )
 
         if bola is not None:
             eh_predicao = bola.source == "trajectory_prediction"
@@ -775,11 +801,12 @@ def detectar_rastro_bola_calibracao(
                         "detector_source": bola.source or detector_usado,
                     }
                 )
-            ultimo_bola = bola
-            ultimo_bola_frame_idx = int(frame_idx)
-            ball_track.append((int(bola.x), int(bola.y)))
-            max_track_points = max(18, _int_env("TENNIS_XRAY_BALL_TRACK_RENDER_POINTS", 160))
-            ball_track = ball_track[-max_track_points:]
+            if not eh_predicao:
+                ultimo_bola = bola
+                ultimo_bola_frame_idx = int(frame_idx)
+                ball_track.append((int(bola.x), int(bola.y)))
+                max_track_points = max(18, _int_env("TENNIS_XRAY_BALL_TRACK_RENDER_POINTS", 90))
+                ball_track = ball_track[-max_track_points:]
             falhas_consecutivas = falhas_consecutivas + 1 if eh_predicao else 0
         else:
             falhas_consecutivas += 1
@@ -947,14 +974,17 @@ def _detectar_rastro_bola_com_seed(
             bola = _suavizar_bola_com_prior(bola, prior_bola)
 
         if bola is None or bola.confidence < min_confidence:
-            bola_predita = _bola_predita_por_rastro(
-                ball_track=ball_track,
-                ultima_bola=ultima_bola,
-                frame_shape=frame.shape,
-                gap_steps=gap_steps,
-                falhas_consecutivas=falhas_consecutivas,
-                calibracao=calibracao,
-            )
+            bola_predita = None
+            max_predicoes_render = _int_env("TENNIS_XRAY_BALL_RENDER_PREDICT_MAX_GAPS", 8)
+            if falhas_consecutivas < max_predicoes_render:
+                bola_predita = _bola_predita_por_rastro(
+                    ball_track=ball_track,
+                    ultima_bola=ultima_bola,
+                    frame_shape=frame.shape,
+                    gap_steps=gap_steps,
+                    falhas_consecutivas=falhas_consecutivas,
+                    calibracao=calibracao,
+                )
             limiar_predicao = max(0.24, min_confidence * 0.70)
             if bola_predita is None or bola_predita.confidence < limiar_predicao:
                 falhas_consecutivas += 1
@@ -982,12 +1012,13 @@ def _detectar_rastro_bola_com_seed(
                 "detector_source": bola.source or detector_usado,
             }
         )
-        ultima_bola = bola
-        ultimo_bola_frame_idx = int(frame_idx)
         falhas_consecutivas = falhas_consecutivas + 1 if eh_predicao else 0
-        ball_track.append((int(bola.x), int(bola.y)))
-        max_track_points = max(18, _int_env("TENNIS_XRAY_BALL_TRACK_RENDER_POINTS", 160))
-        ball_track = ball_track[-max_track_points:]
+        if not eh_predicao:
+            ultima_bola = bola
+            ultimo_bola_frame_idx = int(frame_idx)
+            ball_track.append((int(bola.x), int(bola.y)))
+            max_track_points = max(18, _int_env("TENNIS_XRAY_BALL_TRACK_RENDER_POINTS", 90))
+            ball_track = ball_track[-max_track_points:]
         if not eh_predicao and bola.confidence >= 0.44:
             novo_template = _extrair_template_bola(frame, bola)
             if novo_template is not None:
@@ -1086,6 +1117,10 @@ def _expandir_trajetoria_global_para_indices_render(
         frame_b, bola_b = pontos[cursor + 1]
         if frame_idx > frame_b:
             continue
+        if frame_idx == frame_b:
+            if _bola_renderizavel_no_escopo(bola_b, calibracao, shape_valido):
+                resultado[frame_idx] = bola_b
+            continue
 
         gap = frame_b - frame_a
         if gap <= 0 or gap > max_gap_frames:
@@ -1110,13 +1145,101 @@ def _expandir_trajetoria_global_para_indices_render(
     return resultado
 
 
+def _trajetoria_global_render_confiavel(
+    trajetoria_sparse: dict[int, BallDetection],
+    trajetoria_render: dict[int, BallDetection],
+) -> bool:
+    if not trajetoria_sparse or not trajetoria_render:
+        return False
+
+    reais = [
+        bola
+        for bola in trajetoria_sparse.values()
+        if bola.source != "trajectory_prediction"
+        and _fonte_bola_global_confiavel(bola.source)
+    ]
+    if len(reais) < _int_env("TENNIS_XRAY_GLOBAL_BALL_RENDER_MIN_REAL", 4):
+        return False
+
+    predicoes = sum(1 for bola in trajetoria_render.values() if bola.source == "trajectory_prediction")
+    taxa_predicao = predicoes / max(len(trajetoria_render), 1)
+    limite_padrao = _float_env("TENNIS_XRAY_GLOBAL_BALL_RENDER_MAX_PRED_RATE", 0.78)
+    if taxa_predicao <= limite_padrao:
+        return True
+
+    # Quando o modelo entrega ancoras fortes mas esparsas, a trilha correta tem
+    # necessariamente muitos pontos interpolados. Nesse modo aceitamos uma taxa
+    # maior de predicao, desde que haja varias ancoras reais confiaveis para
+    # sustentar os segmentos renderizados.
+    min_ancoras_segmentadas = _int_env("TENNIS_XRAY_GLOBAL_BALL_SEGMENT_MIN_ANCHORS", 8)
+    limite_segmentado = _float_env("TENNIS_XRAY_GLOBAL_BALL_SEGMENT_MAX_PRED_RATE", 0.95)
+    if len(reais) < min_ancoras_segmentadas or taxa_predicao > limite_segmentado:
+        return False
+    return True
+
+
+def _rastro_visual_bola_para_frame(
+    trajetoria_global: dict[int, BallDetection],
+    frame_idx: int,
+    bola_atual: BallDetection | None,
+    fps_original: float,
+) -> list[tuple[int, int]]:
+    pontos: list[tuple[int, float, float]] = []
+    fps_ref = max(float(fps_original or 0.0), 1.0)
+    max_pontos = _max_pontos_rastro_visual(fps_ref)
+    max_gap = max(2, int(round(fps_ref * _float_env("TENNIS_XRAY_BALL_VISUAL_TRAIL_MAX_GAP_S", 0.75))))
+    max_idade = max(max_pontos, max_gap) if bola_atual is not None else max_pontos
+    corte_idade = int(frame_idx) - max_idade
+
+    for idx, bola in sorted(trajetoria_global.items()):
+        idx_int = int(idx)
+        if idx_int > frame_idx:
+            break
+        if idx_int < corte_idade:
+            continue
+        pontos.append((idx_int, float(bola.x), float(bola.y)))
+
+    if bola_atual is not None:
+        if not pontos or pontos[-1][0] != int(frame_idx):
+            pontos.append((int(frame_idx), float(bola_atual.x), float(bola_atual.y)))
+        else:
+            pontos[-1] = (int(frame_idx), float(bola_atual.x), float(bola_atual.y))
+
+    if len(pontos) < 2:
+        return [(int(x), int(y)) for _idx, x, y in pontos]
+
+    inicio = len(pontos) - 1
+    while inicio > 0:
+        if pontos[inicio][0] - pontos[inicio - 1][0] > max_gap:
+            break
+        inicio -= 1
+
+    segmento = pontos[inicio:][-max_pontos:]
+    return [(int(round(x)), int(round(y))) for _idx, x, y in segmento]
+
+
+def _max_pontos_rastro_visual(fps_original: float) -> int:
+    fps_ref = max(float(fps_original or 0.0), 1.0)
+    duracao_s = _float_env("TENNIS_XRAY_BALL_VISUAL_TRAIL_S", 0.45)
+    return max(8, int(round(fps_ref * max(0.12, min(1.20, duracao_s)))))
+
+
 def _calibracao_quadra_basica_disponivel(calibracao: dict | None) -> bool:
     pontos = _pontos_calibracao_normalizados(calibracao)
     return all(nome in pontos for nome in ("sup_esquerda", "sup_direita", "inf_direita", "inf_esquerda"))
 
 
+def _fonte_bola_normalizada(source: str) -> str:
+    fonte = str(source or "")
+    if fonte.startswith("global_"):
+        fonte = fonte[len("global_") :]
+    if fonte.endswith("_reacquired"):
+        fonte = fonte[: -len("_reacquired")]
+    return fonte
+
+
 def _fonte_bola_global_confiavel(source: str) -> bool:
-    return source in {"manual_anchor", "calibrated_fill", "manual_seed", "tracknet", "ball_yolo"}
+    return _fonte_bola_normalizada(source) in {"manual_anchor", "calibrated_fill", "manual_seed", "tracknet", "ball_yolo", "beam_contact"}
 
 
 def _candidato_global_sem_calibracao_valido(candidato: BallDetection, frame_shape: tuple[int, int, int]) -> bool:
@@ -1160,16 +1283,18 @@ def _precalcular_trajetoria_bola_global(
     fps_ref = max(float(fps_original or 0.0), 1.0)
     beam_width = _int_env("TENNIS_XRAY_GLOBAL_BALL_BEAM_WIDTH", 10)
     tem_calibracao_quadra = _calibracao_quadra_basica_disponivel(calibracao)
-    max_misses_padrao = 42 if tem_calibracao_quadra else 8
+    max_misses_padrao = 54 if tem_calibracao_quadra else 8
     max_misses = _int_env("TENNIS_XRAY_GLOBAL_BALL_MAX_MISSES", max_misses_padrao)
     min_detected = _int_env("TENNIS_XRAY_GLOBAL_BALL_MIN_DETECTED", 4)
     max_candidates = _int_env("TENNIS_XRAY_GLOBAL_BALL_MAX_CANDIDATES", 16)
-    min_real_rate = _float_env("TENNIS_XRAY_GLOBAL_BALL_MIN_REAL_RATE", 0.10 if tem_calibracao_quadra else 0.28)
-    min_reliable = _int_env("TENNIS_XRAY_GLOBAL_BALL_MIN_RELIABLE", 2 if tem_calibracao_quadra else 4)
+    min_real_rate = _float_env("TENNIS_XRAY_GLOBAL_BALL_MIN_REAL_RATE", 0.22 if tem_calibracao_quadra else 0.28)
+    min_reliable = _int_env("TENNIS_XRAY_GLOBAL_BALL_MIN_RELIABLE", 3 if tem_calibracao_quadra else 4)
 
     frame_anterior: np.ndarray | None = None
     frame_pre_anterior: np.ndarray | None = None
     anchors_bola: list[BallAnchor] | None = None
+    ancoras_confiaveis: list[tuple[int, float, BallDetection]] = []
+    resgates_contato: list[tuple[int, float, BallDetection]] = []
     estados: list[BallBeamState] = []
     melhor_estado: BallBeamState | None = None
     modelo_pessoas = _load_yolo_model() if _bool_env("TENNIS_XRAY_GLOBAL_BALL_PLAYER_CONTEXT", False) else None
@@ -1230,20 +1355,48 @@ def _precalcular_trajetoria_bola_global(
             if anchor is not None:
                 candidatos.insert(0, anchor)
             candidatos = _deduplicar_candidatos_bola_global(candidatos)[:max_candidates]
+            contatos_frame: list[BallDetection] = []
+            for candidato in candidatos:
+                if _candidato_beam_resgate_contato(candidato, players_global, frame.shape, calibracao):
+                    contato = BallDetection(
+                        candidato.x,
+                        candidato.y,
+                        candidato.radius,
+                        min(0.76, max(0.50, candidato.confidence)),
+                        "beam_contact",
+                        candidato.motion_score,
+                        candidato.yellow_ratio,
+                    )
+                    resgates_contato.append(
+                        (
+                            int(frame_idx),
+                            tempo_s,
+                            contato,
+                        )
+                    )
+                    contatos_frame.append(contato)
+            if contatos_frame and _bool_env("TENNIS_XRAY_GLOBAL_BALL_CONTACT_CANDIDATES", False):
+                candidatos = _deduplicar_candidatos_bola_global([*contatos_frame, *candidatos])[:max_candidates]
             candidatos = [
                 candidato
                 for candidato in candidatos
                 if _candidato_global_tem_evidencia_minima(candidato)
                 and (tem_calibracao_quadra or _candidato_global_sem_calibracao_valido(candidato, frame.shape))
                 and not _candidato_bola_em_borda_frame(candidato, frame.shape, margem_px=max(18.0, min_dim * 0.022))
-                and _candidato_bola_no_corredor_quadra_central(
-                    candidato,
-                    calibracao,
-                    frame.shape,
-                    margem_px=max(24.0, min_dim * 0.035),
-                    margem_ar_px=max(64.0, min_dim * 0.095),
+                and (
+                    _ancora_bola_global_forte_isolada(candidato)
+                    or _candidato_bola_no_corredor_quadra_central(
+                        candidato,
+                        calibracao,
+                        frame.shape,
+                        margem_px=max(24.0, min_dim * 0.035),
+                        margem_ar_px=max(64.0, min_dim * 0.095),
+                    )
                 )
             ]
+            melhor_ancora_confiavel = _melhor_ancora_bola_global_confiavel(candidatos)
+            if melhor_ancora_confiavel is not None:
+                ancoras_confiaveis.append((int(frame_idx), tempo_s, melhor_ancora_confiavel))
 
             proximos: list[BallBeamState] = []
 
@@ -1388,7 +1541,10 @@ def _precalcular_trajetoria_bola_global(
                         )
                     )
 
-                if estado.misses < max_misses and estado.detected >= 2:
+                if estado.misses < max_misses and estado.detected >= 1:
+                    deteccoes_confiaveis_estado = _estado_bola_global_contar_confiaveis(estado)
+                    if deteccoes_confiaveis_estado <= 0 and estado.detected < 2:
+                        continue
                     pred = BallDetection(
                         pred_x,
                         pred_y,
@@ -1398,7 +1554,10 @@ def _precalcular_trajetoria_bola_global(
                         0.08,
                         0.08,
                     )
-                    predicao_permitida = tem_calibracao_quadra or estado.misses < min(max_misses, 4)
+                    predicao_permitida = (
+                        estado.misses < min(max_misses, 4)
+                        or (tem_calibracao_quadra and deteccoes_confiaveis_estado >= 1 and estado.misses < max_misses)
+                    )
                     if (
                         predicao_permitida
                         and not _candidato_bola_em_borda_frame(pred, frame.shape, margem_px=max(18.0, min_dim * 0.022))
@@ -1452,7 +1611,13 @@ def _precalcular_trajetoria_bola_global(
     ):
         candidatos_finais = [melhor_estado]
     if not candidatos_finais:
-        return {}
+        return _trajetoria_global_por_ancoras_confiaveis(
+            ancoras=ancoras_confiaveis,
+            indices=indices,
+            fps_ref=fps_ref,
+            frame_shape=(h, w, 3) if "h" in locals() and "w" in locals() else None,
+            calibracao=calibracao,
+        )
 
     melhor = min(candidatos_finais, key=_chave_estado_bola_global_final)
     pontos: dict[int, BallDetection] = {}
@@ -1476,7 +1641,41 @@ def _precalcular_trajetoria_bola_global(
         yellow_ratio = float(item.get("yellow_ratio", 0.0) or 0.0)
         pontos[frame_idx] = BallDetection(x, y, radius, confidence, final_source, motion_score, yellow_ratio)
 
-    return pontos
+    pontos = _mesclar_ancoras_confiaveis_na_trajetoria(pontos, ancoras_confiaveis)
+    pontos = _mesclar_resgates_contato_na_trajetoria(
+        pontos,
+        resgates_contato,
+        fps_ref,
+        (h, w, 3) if "h" in locals() and "w" in locals() else None,
+        calibracao,
+    )
+    resgates_contato_validos = [
+        (frame_idx, tempo_s, pontos[frame_idx])
+        for frame_idx, tempo_s, _bola in resgates_contato
+        if frame_idx in pontos and pontos[frame_idx].source == "beam_contact"
+    ]
+    frame_shape_global = (h, w, 3) if "h" in locals() and "w" in locals() else None
+    pontos = _podar_predicoes_global_sem_ancoras(pontos, fps_ref, frame_shape_global)
+    pontos_ancoras = _trajetoria_global_por_ancoras_confiaveis(
+        ancoras=sorted([*ancoras_confiaveis, *resgates_contato_validos], key=lambda item: item[0]),
+        indices=indices,
+        fps_ref=fps_ref,
+        frame_shape=frame_shape_global,
+        calibracao=calibracao,
+    )
+    pontos_ancoras = _podar_predicoes_global_sem_ancoras(pontos_ancoras, fps_ref, frame_shape_global)
+    pontos_mesclados = _mesclar_trajetorias_global_bola(pontos, pontos_ancoras, fps_ref, frame_shape_global)
+    pontos_mesclados = _preencher_lacunas_globais_estendidas_seguras(
+        pontos_mesclados,
+        indices,
+        fps_ref,
+        frame_shape_global,
+        calibracao,
+    )
+    melhor_base = max((pontos, pontos_ancoras), key=_pontuacao_trajetoria_global_segmentada)
+    if _trajetoria_mesclada_preserva_cobertura_real(pontos_mesclados, melhor_base):
+        return pontos_mesclados
+    return melhor_base
 
 
 def _estado_bola_global_tem_cobertura_real(
@@ -1496,14 +1695,516 @@ def _estado_bola_global_tem_cobertura_real(
         if _fonte_bola_global_confiavel(source):
             confiaveis += 1
 
+    if confiaveis >= min_reliable:
+        return True
     taxa_real = reais / tamanho
     if reais < 3 or taxa_real < min_real_rate:
         return False
-    if confiaveis >= min_reliable:
+    return False
+
+
+def _mesclar_ancoras_confiaveis_na_trajetoria(
+    pontos: dict[int, BallDetection],
+    ancoras: list[tuple[int, float, BallDetection]],
+) -> dict[int, BallDetection]:
+    if not ancoras:
+        return pontos
+
+    resultado = dict(pontos)
+    melhores: dict[int, BallDetection] = {}
+    for frame_idx, _tempo_s, bola in ancoras:
+        atual = melhores.get(int(frame_idx))
+        if atual is None or _score_ancora_confiavel(bola) > _score_ancora_confiavel(atual):
+            melhores[int(frame_idx)] = bola
+
+    for frame_idx, ancora in melhores.items():
+        existente = resultado.get(frame_idx)
+        if existente is None or existente.source == "trajectory_prediction":
+            resultado[frame_idx] = ancora
+            continue
+        fonte_existente = _fonte_bola_normalizada(existente.source)
+        if not _fonte_bola_global_confiavel(fonte_existente):
+            resultado[frame_idx] = ancora
+            continue
+        if _score_ancora_confiavel(ancora) > _score_ancora_confiavel(existente) + 0.08:
+            resultado[frame_idx] = ancora
+    return resultado
+
+
+def _podar_predicoes_global_sem_ancoras(
+    pontos: dict[int, BallDetection],
+    fps_ref: float,
+    frame_shape: tuple[int, int, int] | None = None,
+) -> dict[int, BallDetection]:
+    if not pontos:
+        return pontos
+
+    max_gap_s = _float_env("TENNIS_XRAY_GLOBAL_BALL_ANCHOR_INTERP_MAX_GAP_S", 0.55)
+    max_gap_s_forte = max(max_gap_s, _float_env("TENNIS_XRAY_GLOBAL_BALL_STRONG_ANCHOR_INTERP_MAX_GAP_S", 0.75))
+    min_pred_conf = _float_env("TENNIS_XRAY_GLOBAL_BALL_MIN_PRED_CONF", 0.40)
+    max_gap_frames = max(2, int(round(max(fps_ref, 1.0) * max_gap_s)))
+    max_gap_frames_forte = max(max_gap_frames, int(round(max(fps_ref, 1.0) * max_gap_s_forte)))
+    frames_reais = sorted(
+        frame_idx
+        for frame_idx, bola in pontos.items()
+        if bola.source != "trajectory_prediction"
+    )
+    if len(frames_reais) < 2:
+        return {frame_idx: bola for frame_idx, bola in pontos.items() if bola.source != "trajectory_prediction"}
+
+    resultado: dict[int, BallDetection] = {}
+    reais_set = set(frames_reais)
+    for frame_idx, bola in sorted(pontos.items()):
+        if bola.source != "trajectory_prediction":
+            resultado[frame_idx] = bola
+            continue
+        if bola.confidence < min_pred_conf:
+            continue
+
+        anterior = None
+        posterior = None
+        for real_idx in frames_reais:
+            if real_idx < frame_idx:
+                anterior = real_idx
+                continue
+            if real_idx > frame_idx:
+                posterior = real_idx
+                break
+        if anterior is None or posterior is None:
+            continue
+        limite_gap = max_gap_frames
+        if _ancora_segmento_global_forte(pontos[anterior]) and _ancora_segmento_global_forte(pontos[posterior]):
+            limite_gap = max_gap_frames_forte
+        if posterior - anterior > limite_gap:
+            if not _segmento_interpolacao_global_estendido_seguro(
+                pontos[anterior],
+                pontos[posterior],
+                posterior - anterior,
+                fps_ref,
+                frame_shape,
+            ):
+                continue
+        if anterior not in reais_set or posterior not in reais_set:
+            continue
+        resultado[frame_idx] = bola
+    return resultado
+
+
+def _mesclar_trajetorias_global_bola(
+    primaria: dict[int, BallDetection],
+    secundaria: dict[int, BallDetection],
+    fps_ref: float,
+    frame_shape: tuple[int, int, int] | None = None,
+) -> dict[int, BallDetection]:
+    """Combina a trilha do beam com a trilha por ancoras sem trocar segmentos bons."""
+
+    if not primaria:
+        return dict(secundaria)
+    if not secundaria:
+        return dict(primaria)
+
+    resultado = dict(primaria)
+    for frame_idx, candidato in secundaria.items():
+        existente = resultado.get(frame_idx)
+        if existente is None or _preferir_ponto_trajetoria_global(candidato, existente):
+            resultado[int(frame_idx)] = candidato
+
+    return _podar_predicoes_global_sem_ancoras(resultado, fps_ref, frame_shape)
+
+
+def _preferir_ponto_trajetoria_global(novo: BallDetection, atual: BallDetection) -> bool:
+    if atual.source == "trajectory_prediction":
+        if novo.source != "trajectory_prediction":
+            return True
+        return novo.confidence > atual.confidence + 0.03
+    if novo.source == "trajectory_prediction":
+        return False
+
+    novo_forte = _candidato_modelo_bola_forte(novo)
+    atual_forte = _candidato_modelo_bola_forte(atual)
+    if novo_forte != atual_forte:
+        return novo_forte
+
+    novo_confiavel = _fonte_bola_global_confiavel(novo.source)
+    atual_confiavel = _fonte_bola_global_confiavel(atual.source)
+    if novo_confiavel != atual_confiavel:
+        return novo_confiavel
+
+    return _score_ancora_confiavel(novo) > _score_ancora_confiavel(atual) + 0.05
+
+
+def _ancora_segmento_global_forte(bola: BallDetection) -> bool:
+    source = _fonte_bola_normalizada(bola.source)
+    if source in {"manual_anchor", "calibrated_fill", "manual_seed"}:
         return True
-    # Com quadra calibrada, beam/OpenCV ainda pode complementar quando ha
-    # bastante evidencia real, mas sem calibracao ele nao deve sustentar trilha.
-    return tem_calibracao_quadra and reais >= max(6, min_reliable + 3) and taxa_real >= max(min_real_rate, 0.16)
+    return _candidato_modelo_bola_forte(bola)
+
+
+def _segmento_interpolacao_global_estendido_seguro(
+    bola_a: BallDetection,
+    bola_b: BallDetection,
+    gap_frames: int,
+    fps_ref: float,
+    frame_shape: tuple[int, int, int] | None,
+) -> bool:
+    if frame_shape is None or gap_frames <= 0:
+        return False
+    if not (_ancora_segmento_global_forte(bola_a) and _ancora_segmento_global_forte(bola_b)):
+        return False
+
+    gap_s = gap_frames / max(fps_ref, 1.0)
+    max_gap_s = _float_env("TENNIS_XRAY_GLOBAL_BALL_STEEP_INTERP_MAX_GAP_S", 1.55)
+    if gap_s > max_gap_s:
+        return False
+
+    min_dim = float(min(frame_shape[:2]))
+    dx = float(bola_b.x - bola_a.x)
+    dy = float(bola_b.y - bola_a.y)
+    dist = math.hypot(dx, dy)
+    if dist > max(260.0, min_dim * 0.34):
+        return False
+    if (
+        gap_s <= _float_env("TENNIS_XRAY_GLOBAL_BALL_SHORT_ARC_INTERP_MAX_GAP_S", 0.95)
+        and dist <= max(92.0, min_dim * 0.105)
+        and abs(dy) <= max(48.0, min_dim * 0.050)
+    ):
+        return True
+    if abs(dy) < max(58.0, min_dim * 0.052):
+        return False
+    if abs(dx) > max(82.0, min_dim * 0.115) and abs(dx) / max(abs(dy), 1.0) > 0.42:
+        return False
+    return True
+
+
+def _preencher_lacunas_globais_estendidas_seguras(
+    pontos: dict[int, BallDetection],
+    indices: list[int],
+    fps_ref: float,
+    frame_shape: tuple[int, int, int] | None,
+    calibracao: dict | None,
+) -> dict[int, BallDetection]:
+    if not pontos or frame_shape is None:
+        return pontos
+
+    reais = sorted(
+        (int(frame_idx), bola)
+        for frame_idx, bola in pontos.items()
+        if bola.source != "trajectory_prediction"
+    )
+    if len(reais) < 2:
+        return pontos
+
+    resultado = dict(pontos)
+    indices_ordenados = sorted(set(int(item) for item in indices))
+    for (frame_a, bola_a), (frame_b, bola_b) in zip(reais, reais[1:]):
+        gap_frames = frame_b - frame_a
+        if not _segmento_interpolacao_global_estendido_seguro(bola_a, bola_b, gap_frames, fps_ref, frame_shape):
+            continue
+        for frame_idx in indices_ordenados:
+            if frame_idx <= frame_a or frame_idx >= frame_b:
+                continue
+            existente = resultado.get(frame_idx)
+            if existente is not None and existente.source != "trajectory_prediction":
+                continue
+            t = (frame_idx - frame_a) / max(gap_frames, 1)
+            t = max(0.0, min(1.0, float(t)))
+            t_y = _t_interpolacao_y_segmento_estendido(bola_a, bola_b, t, frame_shape)
+            candidato = BallDetection(
+                x=bola_a.x + (bola_b.x - bola_a.x) * t,
+                y=bola_a.y + (bola_b.y - bola_a.y) * t_y,
+                radius=max(2.2, min(9.0, (bola_a.radius + bola_b.radius) * 0.5)),
+                confidence=max(0.32, min(bola_a.confidence, bola_b.confidence) * (0.68 - abs(t - 0.5) * 0.16)),
+                source="trajectory_prediction",
+                motion_score=0.08,
+                yellow_ratio=0.08,
+            )
+            if _bola_renderizavel_no_escopo(candidato, calibracao, frame_shape):
+                resultado[int(frame_idx)] = candidato
+
+    return _podar_predicoes_global_sem_ancoras(resultado, fps_ref, frame_shape)
+
+
+def _t_interpolacao_y_segmento_estendido(
+    bola_a: BallDetection,
+    bola_b: BallDetection,
+    t: float,
+    frame_shape: tuple[int, int, int],
+) -> float:
+    min_dim = float(min(frame_shape[:2]))
+    dx = float(bola_b.x - bola_a.x)
+    dy = float(bola_b.y - bola_a.y)
+    if abs(dy) <= max(abs(dx) * 1.8, min_dim * 0.080):
+        return t
+
+    expoente = max(1.0, _float_env("TENNIS_XRAY_GLOBAL_BALL_STEEP_INTERP_Y_EXP", 1.45))
+    if dy > 0:
+        return t**expoente
+    return 1.0 - ((1.0 - t) ** expoente)
+
+
+def _trajetoria_mesclada_preserva_cobertura_real(
+    mesclada: dict[int, BallDetection],
+    base: dict[int, BallDetection],
+) -> bool:
+    if len(mesclada) <= len(base):
+        return False
+
+    reais_base = [
+        frame_idx
+        for frame_idx, bola in base.items()
+        if bola.source != "trajectory_prediction" and _fonte_bola_global_confiavel(bola.source)
+    ]
+    reais_mesclada = [
+        frame_idx
+        for frame_idx, bola in mesclada.items()
+        if bola.source != "trajectory_prediction" and _fonte_bola_global_confiavel(bola.source)
+    ]
+    if len(reais_mesclada) < len(reais_base):
+        return False
+    if not reais_base:
+        return bool(reais_mesclada)
+    return min(reais_mesclada) <= min(reais_base) and max(reais_mesclada) >= max(reais_base)
+
+
+def _mesclar_resgates_contato_na_trajetoria(
+    pontos: dict[int, BallDetection],
+    resgates: list[tuple[int, float, BallDetection]],
+    fps_ref: float,
+    frame_shape: tuple[int, int, int] | None,
+    calibracao: dict | None,
+) -> dict[int, BallDetection]:
+    if not _bool_env("TENNIS_XRAY_GLOBAL_BALL_CONTACT_RESCUE", False):
+        return pontos
+    if not pontos or not resgates or frame_shape is None:
+        return pontos
+
+    resultado = dict(pontos)
+    frames_fortes = sorted(
+        frame_idx
+        for frame_idx, bola in resultado.items()
+        if bola.source != "trajectory_prediction" and _candidato_modelo_bola_forte(bola)
+    )
+    if len(frames_fortes) < 2:
+        return resultado
+
+    max_gap = int(round(max(fps_ref, 1.0) * _float_env("TENNIS_XRAY_BALL_CONTACT_RESCUE_BRACKET_GAP_S", 1.55)))
+    melhores: dict[int, BallDetection] = {}
+    for frame_idx, _tempo_s, candidato in resgates:
+        if not _candidato_em_metade_inferior_quadra(candidato, calibracao, frame_shape):
+            continue
+        anterior = max((idx for idx in frames_fortes if idx < frame_idx), default=None)
+        posterior = min((idx for idx in frames_fortes if idx > frame_idx), default=None)
+        if anterior is None or posterior is None:
+            continue
+        if frame_idx - anterior > max_gap or posterior - frame_idx > max_gap:
+            continue
+        if posterior - anterior > max_gap * 2:
+            continue
+
+        bola_anterior = resultado[anterior]
+        bola_posterior = resultado[posterior]
+        dist_anterior = math.hypot(candidato.x - bola_anterior.x, candidato.y - bola_anterior.y)
+        dist_posterior = math.hypot(candidato.x - bola_posterior.x, candidato.y - bola_posterior.y)
+        min_dim = float(min(frame_shape[:2]))
+        alcance = max(170.0, min_dim * 0.36)
+        if min(dist_anterior, dist_posterior) > alcance:
+            continue
+
+        atual = melhores.get(frame_idx)
+        if atual is None or _score_ancora_confiavel(candidato) > _score_ancora_confiavel(atual):
+            melhores[frame_idx] = candidato
+
+    for frame_idx, candidato in melhores.items():
+        existente = resultado.get(frame_idx)
+        if existente is None or existente.source == "trajectory_prediction":
+            resultado[frame_idx] = candidato
+
+    return resultado
+
+
+def _score_ancora_confiavel(bola: BallDetection) -> float:
+    source = _fonte_bola_normalizada(bola.source)
+    bonus = 0.16 if source == "tracknet" else 0.12 if source == "ball_yolo" else 0.04 if source == "beam_contact" else 0.0
+    return (
+        float(bola.confidence)
+        + min(float(bola.motion_score), 0.45) * 0.42
+        + min(float(bola.yellow_ratio), 0.85) * 0.18
+        + bonus
+    )
+
+
+def _pontuacao_trajetoria_global_segmentada(pontos: dict[int, BallDetection]) -> float:
+    if not pontos:
+        return -1.0
+
+    reais = [
+        frame_idx
+        for frame_idx, bola in pontos.items()
+        if bola.source != "trajectory_prediction"
+        and _fonte_bola_global_confiavel(bola.source)
+    ]
+    if not reais:
+        return -1.0
+
+    frames = sorted(pontos)
+    span_total = max(frames) - min(frames) if len(frames) >= 2 else 0
+    span_real = max(reais) - min(reais) if len(reais) >= 2 else 0
+    predicoes = sum(1 for bola in pontos.values() if bola.source == "trajectory_prediction")
+    primeiro_real = min(reais)
+    return len(reais) * 210.0 + span_real * 1.25 + span_total * 0.25 - predicoes * 0.018 - primeiro_real * 0.18
+
+
+def _estado_bola_global_contar_confiaveis(estado: BallBeamState) -> int:
+    total = 0
+    for item in estado.path:
+        if _fonte_bola_global_confiavel(str(item.get("detector_source") or "")):
+            total += 1
+    return total
+
+
+def _melhor_ancora_bola_global_confiavel(candidatos: list[BallDetection]) -> BallDetection | None:
+    manuais = [
+        candidato
+        for candidato in candidatos
+        if candidato.source in {"manual_anchor", "calibrated_fill"}
+    ]
+    if manuais:
+        return max(manuais, key=lambda item: item.confidence)
+
+    confiaveis = [
+        candidato
+        for candidato in candidatos
+        if _ancora_bola_global_forte(candidato)
+    ]
+    if len(confiaveis) == 1:
+        return confiaveis[0] if _ancora_bola_global_forte_isolada(confiaveis[0]) else None
+    if len(confiaveis) < 2:
+        return None
+
+    consenso: list[BallDetection] = []
+    for candidato in confiaveis:
+        if any(
+            outro is not candidato
+            and outro.source != candidato.source
+            and math.hypot(outro.x - candidato.x, outro.y - candidato.y) <= max(26.0, candidato.radius + outro.radius + 16.0)
+            for outro in confiaveis
+        ):
+            consenso.append(candidato)
+    if not consenso:
+        candidato_unico = max(
+            confiaveis,
+            key=lambda item: (
+                _fonte_bola_normalizada(item.source) in {"tracknet", "ball_yolo"},
+                item.confidence + min(item.motion_score, 0.35) * 0.45 + min(item.yellow_ratio, 0.85) * 0.18,
+            ),
+        )
+        if _ancora_bola_global_forte_isolada(candidato_unico):
+            return candidato_unico
+        return None
+
+    return max(
+        consenso,
+        key=lambda item: (
+            _fonte_bola_normalizada(item.source) in {"tracknet", "ball_yolo"},
+            item.confidence + min(item.motion_score, 0.35) * 0.45 + min(item.yellow_ratio, 0.85) * 0.18,
+        ),
+    )
+
+
+def _ancora_bola_global_forte(candidato: BallDetection) -> bool:
+    source = _fonte_bola_normalizada(candidato.source)
+    if source in {"manual_anchor", "calibrated_fill"}:
+        return True
+    if source == "tracknet":
+        return (
+            candidato.confidence >= 0.72
+            and candidato.motion_score >= 0.050
+            and candidato.yellow_ratio >= 0.050
+        )
+    if source == "ball_yolo":
+        return (
+            candidato.confidence >= 0.60
+            and candidato.motion_score >= 0.080
+            and candidato.yellow_ratio >= 0.200
+        )
+    return False
+
+
+def _ancora_bola_global_forte_isolada(candidato: BallDetection) -> bool:
+    source = _fonte_bola_normalizada(candidato.source)
+    if source == "tracknet":
+        return (
+            candidato.confidence >= 0.76
+            and candidato.motion_score >= 0.050
+            and candidato.yellow_ratio >= 0.045
+        )
+    if source == "ball_yolo":
+        return (
+            candidato.confidence >= 0.62
+            and candidato.motion_score >= 0.075
+            and candidato.yellow_ratio >= 0.120
+        )
+    return source in {"manual_anchor", "calibrated_fill"}
+
+
+def _trajetoria_global_por_ancoras_confiaveis(
+    ancoras: list[tuple[int, float, BallDetection]],
+    indices: list[int],
+    fps_ref: float,
+    frame_shape: tuple[int, int, int] | None,
+    calibracao: dict | None,
+) -> dict[int, BallDetection]:
+    if len(ancoras) < 2 or frame_shape is None:
+        return {}
+
+    min_dim = float(min(frame_shape[:2]))
+    max_gap_s = _float_env("TENNIS_XRAY_GLOBAL_BALL_ANCHOR_INTERP_MAX_GAP_S", 0.55)
+    max_gap_s_forte = max(max_gap_s, _float_env("TENNIS_XRAY_GLOBAL_BALL_STRONG_ANCHOR_INTERP_MAX_GAP_S", 0.75))
+    resultado: dict[int, BallDetection] = {}
+    indices_ordenados = sorted(set(indices))
+
+    for (frame_a, tempo_a, bola_a), (frame_b, tempo_b, bola_b) in zip(ancoras, ancoras[1:]):
+        if frame_b <= frame_a:
+            continue
+        gap_s = max(0.0, (frame_b - frame_a) / max(fps_ref, 1.0))
+        limite_gap_s = max_gap_s_forte if _ancora_segmento_global_forte(bola_a) and _ancora_segmento_global_forte(bola_b) else max_gap_s
+        if gap_s > limite_gap_s and not _segmento_interpolacao_global_estendido_seguro(
+            bola_a,
+            bola_b,
+            frame_b - frame_a,
+            fps_ref,
+            frame_shape,
+        ):
+            continue
+        distancia = math.hypot(bola_b.x - bola_a.x, bola_b.y - bola_a.y)
+        alcance = max(115.0, min_dim * (0.12 + 0.65 * min(gap_s, 1.55)))
+        if distancia > alcance:
+            continue
+        for frame_idx in indices_ordenados:
+            if frame_idx < frame_a or frame_idx > frame_b:
+                continue
+            t = (frame_idx - frame_a) / max(frame_b - frame_a, 1)
+            t = max(0.0, min(1.0, float(t)))
+            x = bola_a.x + (bola_b.x - bola_a.x) * t
+            y = bola_a.y + (bola_b.y - bola_a.y) * t
+            if frame_idx == frame_a:
+                candidato = bola_a
+            elif frame_idx == frame_b:
+                candidato = bola_b
+            else:
+                candidato = BallDetection(
+                    x=x,
+                    y=y,
+                    radius=max(2.2, min(9.0, (bola_a.radius + bola_b.radius) * 0.5)),
+                    confidence=max(0.24, min(bola_a.confidence, bola_b.confidence) * (0.72 - abs(t - 0.5) * 0.18)),
+                    source="trajectory_prediction",
+                    motion_score=0.08,
+                    yellow_ratio=0.08,
+                )
+            if _bola_renderizavel_no_escopo(candidato, calibracao, frame_shape):
+                resultado[int(frame_idx)] = candidato
+
+    return resultado
 
 
 def _ponto_trajetoria_global_dict(bola: BallDetection, frame_idx: int, tempo_s: float) -> dict:
@@ -1533,11 +2234,17 @@ def _deduplicar_candidatos_bola_global(candidatos: list[BallDetection]) -> list[
 def _candidato_inicio_global_valido(candidato: BallDetection) -> bool:
     if candidato.source in {"manual_anchor", "calibrated_fill"}:
         return True
+    if candidato.source == "beam_candidate":
+        return (
+            candidato.confidence >= 0.62
+            and candidato.motion_score >= 0.080
+            and candidato.yellow_ratio >= 0.120
+        )
     if candidato.motion_score >= 0.040 and candidato.confidence >= 0.38:
         return True
     if candidato.motion_score >= 0.024 and candidato.yellow_ratio >= 0.16 and candidato.confidence >= 0.56:
         return True
-    if candidato.source in {"tracknet", "ball_yolo"} and candidato.confidence >= 0.84 and candidato.motion_score >= 0.020:
+    if _fonte_bola_normalizada(candidato.source) in {"tracknet", "ball_yolo"} and candidato.confidence >= 0.84 and candidato.motion_score >= 0.020:
         return True
     return False
 
@@ -1558,7 +2265,12 @@ def _tentar_reaquisicao_global_bola(
     ponte interpolada entre a ultima deteccao real e a nova deteccao.
     """
 
-    if estado.misses < 3 or not _candidato_global_reaquisicao_forte(candidato):
+    reaquisicao_forte = _candidato_global_reaquisicao_forte(candidato)
+    reaquisicao_moderada = (
+        estado.misses >= _int_env("TENNIS_XRAY_GLOBAL_BALL_REACQUIRE_MODERATE_MIN_MISSES", 5)
+        and _candidato_global_reaquisicao_moderada(candidato)
+    )
+    if estado.misses < 3 or not (reaquisicao_forte or reaquisicao_moderada):
         return None
 
     indice_detectado = None
@@ -1626,9 +2338,10 @@ def _tentar_reaquisicao_global_bola(
 
 
 def _candidato_global_reaquisicao_forte(candidato: BallDetection) -> bool:
-    if candidato.source in {"manual_anchor", "calibrated_fill"}:
+    source = _fonte_bola_normalizada(candidato.source)
+    if source in {"manual_anchor", "calibrated_fill", "manual_seed"}:
         return True
-    if candidato.source in {"tracknet", "ball_yolo"}:
+    if source in {"tracknet", "ball_yolo"}:
         return (
             candidato.confidence >= 0.62
             and (
@@ -1637,7 +2350,24 @@ def _candidato_global_reaquisicao_forte(candidato: BallDetection) -> bool:
                 or (candidato.confidence >= 0.90 and candidato.motion_score >= 0.020)
             )
         )
-    return candidato.confidence >= 0.56 and candidato.motion_score >= 0.075 and candidato.yellow_ratio >= 0.080
+    return candidato.confidence >= 0.68 and candidato.motion_score >= 0.140 and candidato.yellow_ratio >= 0.120
+
+
+def _candidato_global_reaquisicao_moderada(candidato: BallDetection) -> bool:
+    source = _fonte_bola_normalizada(candidato.source)
+    if source == "tracknet":
+        return (
+            candidato.confidence >= _float_env("TENNIS_XRAY_GLOBAL_BALL_REACQUIRE_TRACKNET_MIN_CONF", 0.46)
+            and candidato.motion_score >= _float_env("TENNIS_XRAY_GLOBAL_BALL_REACQUIRE_TRACKNET_MIN_MOTION", 0.075)
+            and candidato.yellow_ratio >= _float_env("TENNIS_XRAY_GLOBAL_BALL_REACQUIRE_TRACKNET_MIN_YELLOW", 0.18)
+        )
+    if source == "ball_yolo":
+        return (
+            candidato.confidence >= _float_env("TENNIS_XRAY_GLOBAL_BALL_REACQUIRE_YOLO_MIN_CONF", 0.52)
+            and candidato.motion_score >= _float_env("TENNIS_XRAY_GLOBAL_BALL_REACQUIRE_YOLO_MIN_MOTION", 0.075)
+            and candidato.yellow_ratio >= _float_env("TENNIS_XRAY_GLOBAL_BALL_REACQUIRE_YOLO_MIN_YELLOW", 0.38)
+        )
+    return False
 
 
 def _candidato_global_tem_evidencia_minima(candidato: BallDetection) -> bool:
@@ -1648,9 +2378,10 @@ def _candidato_global_tem_evidencia_minima(candidato: BallDetection) -> bool:
     de bolinha. Isso reduz saltos para fita da rede, logos e highlights.
     """
 
-    if candidato.source in {"manual_anchor", "calibrated_fill"}:
+    source = _fonte_bola_normalizada(candidato.source)
+    if source in {"manual_anchor", "calibrated_fill"}:
         return True
-    if candidato.source == "tracknet":
+    if source == "tracknet":
         return (
             candidato.confidence >= 0.42
             and (
@@ -1659,7 +2390,7 @@ def _candidato_global_tem_evidencia_minima(candidato: BallDetection) -> bool:
                 or candidato.confidence >= 0.90
             )
         )
-    if candidato.source == "ball_yolo":
+    if source == "ball_yolo":
         return (
             candidato.confidence >= 0.40
             and (
@@ -1668,26 +2399,95 @@ def _candidato_global_tem_evidencia_minima(candidato: BallDetection) -> bool:
                 or (candidato.confidence >= 0.93 and candidato.motion_score >= 0.010)
             )
         )
-    return candidato.motion_score >= 0.034 or candidato.yellow_ratio >= 0.135
+    if source == "beam_contact":
+        return (
+            candidato.confidence >= 0.50
+            and (
+                candidato.motion_score >= 0.42
+                or (candidato.motion_score >= 0.24 and candidato.yellow_ratio >= 0.050)
+            )
+        )
+    if source == "beam_candidate":
+        return (
+            candidato.confidence >= 0.52
+            and candidato.motion_score >= 0.065
+            and candidato.yellow_ratio >= 0.090
+        )
+    return candidato.motion_score >= 0.075 and candidato.yellow_ratio >= 0.110
+
+
+def _candidato_beam_movimento_compacto_forte(candidato: BallDetection) -> bool:
+    if _fonte_bola_normalizada(candidato.source) != "beam_candidate":
+        return False
+    if candidato.confidence >= 0.60 and candidato.motion_score >= 0.48:
+        return True
+    return candidato.confidence >= 0.56 and candidato.motion_score >= 0.24 and candidato.yellow_ratio >= 0.150
+
+
+def _candidato_beam_resgate_contato(
+    candidato: BallDetection,
+    players: list[DetectionBox],
+    frame_shape: tuple[int, int, int],
+    calibracao: dict | None,
+) -> bool:
+    if not _candidato_beam_movimento_compacto_forte(candidato):
+        return False
+    if players and not _candidato_em_zona_jogador(candidato, players, frame_shape):
+        return False
+    if not _candidato_em_metade_inferior_quadra(candidato, calibracao, frame_shape):
+        return False
+    if _candidato_bola_em_borda_frame(candidato, frame_shape, margem_px=max(18.0, min(frame_shape[:2]) * 0.022)):
+        return False
+    return _candidato_bola_no_corredor_quadra_central(
+        candidato,
+        calibracao,
+        frame_shape,
+        margem_px=max(24.0, min(frame_shape[:2]) * 0.035),
+        margem_ar_px=max(64.0, min(frame_shape[:2]) * 0.095),
+    )
+
+
+def _candidato_em_metade_inferior_quadra(
+    candidato: BallDetection,
+    calibracao: dict | None,
+    frame_shape: tuple[int, int, int],
+) -> bool:
+    h, _w = frame_shape[:2]
+    pontos = _pontos_calibracao_normalizados(calibracao)
+    ids = ("sup_esquerda", "sup_direita", "inf_direita", "inf_esquerda")
+    if not all(nome in pontos for nome in ids):
+        return candidato.y >= h * 0.52
+
+    topo_y = min(pontos["sup_esquerda"][1], pontos["sup_direita"][1]) * h
+    base_y = max(pontos["inf_esquerda"][1], pontos["inf_direita"][1]) * h
+    if base_y <= topo_y:
+        return candidato.y >= h * 0.52
+    limite = topo_y + (base_y - topo_y) * 0.46
+    return candidato.y >= limite
 
 
 def _custo_deteccao_global(candidato: BallDetection, source_start: bool = False) -> float:
+    source = _fonte_bola_normalizada(candidato.source)
     custo = (1.0 - max(0.0, min(0.99, candidato.confidence))) * 0.82
     custo -= min(candidato.motion_score * 1.8, 0.24)
     custo -= min(candidato.yellow_ratio * 0.7, 0.14)
-    if candidato.source == "tracknet":
-        custo -= 0.04
-    elif candidato.source == "ball_yolo":
-        custo += 0.02
+    if source == "tracknet":
+        custo -= 0.16
+    elif source == "ball_yolo":
+        custo -= 0.12
         if candidato.motion_score < 0.030 and candidato.yellow_ratio < 0.10:
             custo += 0.18
-    elif candidato.source == "beam_candidate":
-        custo += 0.16
-    elif candidato.source == "manual_anchor":
+    elif source == "beam_contact":
+        custo -= 0.04
+        if candidato.motion_score < 0.50 and candidato.yellow_ratio < 0.045:
+            custo += 0.16
+    elif source == "beam_candidate":
+        custo += 0.46
+    elif source == "manual_anchor":
         custo -= 0.55
-    elif candidato.source == "trajectory_prediction":
+    elif source == "trajectory_prediction":
         custo += 0.18
-    if source_start and candidato.motion_score < 0.035 and candidato.source != "manual_anchor":
+    if source_start and candidato.motion_score < 0.035 and source != "manual_anchor":
         custo += 0.38
     return max(-0.55, custo)
 
@@ -2234,6 +3034,8 @@ def _metadata_modelo_tracknet() -> dict:
         "min_confidence": float(getattr(tracker, "min_confidence", 0.0) or 0.0),
         "min_peak_z": float(getattr(tracker, "min_peak_z", 0.0) or 0.0),
         "min_peak_margin": float(getattr(tracker, "min_peak_margin", 0.0) or 0.0),
+        "topk": int(getattr(tracker, "max_candidates", 1) or 1),
+        "topk_nms_radius": int(getattr(tracker, "nms_radius", 0) or 0),
     }
 
 
@@ -3110,7 +3912,7 @@ def _detectar_bola(
     modo_reaquisicao = (
         prior_bola is None
         and bool(ball_track)
-        and falhas_bola_consecutivas >= _int_env("TENNIS_XRAY_BALL_REACQUIRE_AFTER", 4)
+        and falhas_bola_consecutivas >= _int_env("TENNIS_XRAY_BALL_REACQUIRE_AFTER", 3)
     )
 
     if prior_bola is not None:
@@ -3147,6 +3949,8 @@ def _detectar_bola(
         ball_track=ball_track or [],
         prior_bola=prior_bola,
         calibracao=calibracao,
+        modo_reaquisicao=modo_reaquisicao,
+        falhas_bola_consecutivas=falhas_bola_consecutivas,
     )
     if tracknet_candidate is not None:
         candidates.append(tracknet_candidate)
@@ -3308,6 +4112,10 @@ def _detectar_bola(
             (score, candidate)
             for score, candidate in candidates
             if _candidato_bola_em_escopo_de_tracking(candidate, calibracao, frame.shape, ball_track or [], prior_bola)
+            or (
+                _candidato_modelo_bola_forte(candidate)
+                and _bola_renderizavel_no_escopo(candidate, calibracao, frame.shape)
+            )
         ]
         if not candidates:
             return None
@@ -3346,18 +4154,19 @@ def _detectar_bola(
             gate = max(18.0, min(w, h) * 0.040)
             if prior_bola is not None:
                 gate = max(gate, prior_bola.gate_px * 0.92)
-            return score + max(0.0, 1.0 - dist_last / max(gate, 1.0)) * 0.55
+            fonte_bonus = 0.10 if _fonte_bola_normalizada(candidate.source) in {"tracknet", "ball_yolo"} else 0.0
+            return score + fonte_bonus + max(0.0, 1.0 - dist_last / max(gate, 1.0)) * 0.22
 
         rankeados = [(selection_score(item), item[0], item[1]) for item in candidates]
         melhor_rank, best_score, best_candidate = max(rankeados, key=lambda item: item[0])
-        yolo_rankeados = [item for item in rankeados if item[2].source == "ball_yolo"]
+        yolo_rankeados = [item for item in rankeados if _fonte_bola_normalizada(item[2].source) == "ball_yolo"]
         if yolo_rankeados:
             yolo_rank, yolo_score, yolo_candidate = max(yolo_rankeados, key=lambda item: item[0])
             if yolo_rank >= melhor_rank - 0.10 and yolo_score >= best_score - 0.16:
                 best_score, best_candidate = yolo_score, yolo_candidate
     else:
         best_score, best_candidate = max(candidates, key=lambda item: item[0])
-        yolo_candidates = [item for item in candidates if item[1].source == "ball_yolo"]
+        yolo_candidates = [item for item in candidates if _fonte_bola_normalizada(item[1].source) == "ball_yolo"]
         if yolo_candidates:
             yolo_score, yolo_candidate = max(yolo_candidates, key=lambda item: item[0])
             if yolo_score >= best_score - 0.08:
@@ -3377,91 +4186,145 @@ def _candidato_bola_tracknet(
     ball_track: list[tuple[int, int]],
     prior_bola: BallPrior | None,
     calibracao: dict | None,
+    modo_reaquisicao: bool = False,
+    falhas_bola_consecutivas: int = 0,
 ) -> tuple[float, BallDetection] | None:
+    candidatos = _candidatos_bola_tracknet(
+        frame=frame,
+        frame_anterior=frame_anterior,
+        frame_pre_anterior=frame_pre_anterior,
+        players=players,
+        frame_shape=frame_shape,
+        ball_track=ball_track,
+        prior_bola=prior_bola,
+        calibracao=calibracao,
+        modo_reaquisicao=modo_reaquisicao,
+        falhas_bola_consecutivas=falhas_bola_consecutivas,
+        max_candidates=1,
+    )
+    return candidatos[0] if candidatos else None
+
+
+def _candidatos_bola_tracknet(
+    frame: np.ndarray,
+    frame_anterior: np.ndarray | None,
+    frame_pre_anterior: np.ndarray | None,
+    players: list[DetectionBox],
+    frame_shape: tuple[int, int, int],
+    ball_track: list[tuple[int, int]],
+    prior_bola: BallPrior | None,
+    calibracao: dict | None,
+    modo_reaquisicao: bool = False,
+    falhas_bola_consecutivas: int = 0,
+    max_candidates: int | None = None,
+) -> list[tuple[float, BallDetection]]:
     tracker = get_tracknet_tracker()
     if not tracker.available:
-        return None
+        return []
 
-    result = tracker.detect(frame_pre_anterior, frame_anterior, frame)
-    if result is None:
-        return None
+    limite = max(1, int(max_candidates or _int_env("TENNIS_XRAY_TRACKNET_GLOBAL_TOPK", 5)))
+    results = tracker.detect_many(frame_pre_anterior, frame_anterior, frame, max_candidates=limite)
+    if not results:
+        return []
 
-    candidate = BallDetection(
-        x=result.x,
-        y=result.y,
-        radius=result.radius,
-        confidence=min(0.99, max(0.0, result.confidence)),
-        source="tracknet",
-        motion_score=0.0,
-        yellow_ratio=0.0,
-    )
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     motion_mask = _mask_movimento(frame, frame_anterior)
-    motion_score, yellow_ratio, core_sat, core_val = _metricas_locais_candidato_tracknet(
-        hsv=hsv,
-        motion_mask=motion_mask,
-        candidate=candidate,
-    )
-    candidate.motion_score = motion_score
-    candidate.yellow_ratio = yellow_ratio
+    candidatos: list[tuple[float, BallDetection]] = []
+    for result in results:
+        rank = int(getattr(result, "rank", len(candidatos)) or 0)
+        candidate = BallDetection(
+            x=result.x,
+            y=result.y,
+            radius=result.radius,
+            confidence=min(0.99, max(0.0, result.confidence)),
+            source="tracknet",
+            motion_score=0.0,
+            yellow_ratio=0.0,
+        )
+        motion_score, yellow_ratio, core_sat, core_val = _metricas_locais_candidato_tracknet(
+            hsv=hsv,
+            motion_mask=motion_mask,
+            candidate=candidate,
+        )
+        candidate.motion_score = motion_score
+        candidate.yellow_ratio = yellow_ratio
 
-    peak_z = float(getattr(result, "peak_z", 0.0) or 0.0)
-    peak_margin = float(getattr(result, "peak_margin", 0.0) or 0.0)
-    heatmap_score = float(getattr(result, "heatmap_score", result.confidence) or 0.0)
-    pico_forte = peak_z >= 3.75 or peak_margin >= 0.035 or (peak_z >= 3.1 and heatmap_score >= 0.70)
-    evidencia_visual = yellow_ratio >= 0.052 or (yellow_ratio >= 0.022 and core_sat >= 52 and core_val >= 122)
-    evidencia_movimento = motion_score >= _float_env("TENNIS_XRAY_TRACKNET_LOCAL_MOTION_MIN", 0.045)
-    inicio_exige_movimento = _bool_env("TENNIS_XRAY_TRACKNET_START_REQUIRES_MOTION", True)
+        peak_z = float(getattr(result, "peak_z", 0.0) or 0.0)
+        peak_margin = float(getattr(result, "peak_margin", 0.0) or 0.0)
+        heatmap_score = float(getattr(result, "heatmap_score", result.confidence) or 0.0)
+        pico_forte = peak_z >= 3.75 or peak_margin >= 0.035 or (peak_z >= 3.1 and heatmap_score >= 0.70)
+        if rank > 0:
+            pico_forte = pico_forte or (peak_z >= 3.35 and heatmap_score >= 0.68 and peak_margin >= 0.010)
+        evidencia_visual = yellow_ratio >= 0.052 or (yellow_ratio >= 0.022 and core_sat >= 52 and core_val >= 122)
+        evidencia_movimento = motion_score >= _float_env("TENNIS_XRAY_TRACKNET_LOCAL_MOTION_MIN", 0.045)
+        inicio_exige_movimento = _bool_env("TENNIS_XRAY_TRACKNET_START_REQUIRES_MOTION", True)
+        reacquisicao_modelo_forte = (
+            modo_reaquisicao
+            and falhas_bola_consecutivas >= _int_env("TENNIS_XRAY_TRACKNET_REACQUIRE_MIN_GAPS", 12)
+            and _candidato_modelo_bola_forte(candidate)
+        )
 
-    if _candidato_sobre_linha_branca(hsv, candidate, motion_score, yellow_ratio):
-        return None
-    if prior_bola is None and not ball_track:
-        # TrackNet sozinho nao pode iniciar um rastro a partir de um pico sem
-        # movimento/cor local. Isso evita "bolinhas fantasmas" presas em regioes
-        # vazias quando o heatmap ainda esta pouco treinado.
-        if not pico_forte:
-            return None
-        if inicio_exige_movimento and not evidencia_movimento:
-            return None
-        if not (evidencia_movimento or evidencia_visual):
-            return None
-    else:
-        if not (evidencia_movimento or evidencia_visual):
-            perto_prior = prior_bola is not None and _prior_confirma_candidato(candidate, prior_bola)
-            perto_ultimo = False
-            if ball_track:
-                last_x, last_y = ball_track[-1]
-                gate = max(18.0, min(frame_shape[:2]) * 0.030)
-                if prior_bola is not None:
-                    gate = max(gate, prior_bola.gate_px * 0.56)
-                perto_ultimo = math.hypot(candidate.x - float(last_x), candidate.y - float(last_y)) <= gate
-            if not (pico_forte and (perto_prior or perto_ultimo) and heatmap_score >= 0.72):
-                return None
+        if _candidato_sobre_linha_branca(hsv, candidate, motion_score, yellow_ratio):
+            continue
+        if prior_bola is None and not ball_track:
+            # TrackNet sozinho nao pode iniciar um rastro a partir de um pico sem
+            # movimento/cor local. Isso evita "bolinhas fantasmas" presas em regioes
+            # vazias quando o heatmap ainda esta pouco treinado.
+            if not pico_forte:
+                continue
+            if inicio_exige_movimento and not evidencia_movimento:
+                continue
+            if not (evidencia_movimento or evidencia_visual):
+                continue
+        else:
+            if not (evidencia_movimento or evidencia_visual):
+                perto_prior = prior_bola is not None and _prior_confirma_candidato(candidate, prior_bola)
+                perto_ultimo = False
+                if ball_track:
+                    last_x, last_y = ball_track[-1]
+                    gate = max(18.0, min(frame_shape[:2]) * 0.030)
+                    if prior_bola is not None:
+                        gate = max(gate, prior_bola.gate_px * 0.56)
+                    perto_ultimo = math.hypot(candidate.x - float(last_x), candidate.y - float(last_y)) <= gate
+                if not (pico_forte and (perto_prior or perto_ultimo) and heatmap_score >= 0.72):
+                    continue
 
-    if _candidato_em_zona_jogador(candidate, players, frame_shape) and not _prior_confirma_candidato(candidate, prior_bola):
-        # TrackNet can still light up rackets/clothes. Keep contact points only
-        # when they agree with an existing temporal prior.
-        if not ball_track:
-            return None
-        last_x, last_y = ball_track[-1]
-        if math.hypot(candidate.x - float(last_x), candidate.y - float(last_y)) > max(22.0, min(frame_shape[:2]) * 0.040):
-            return None
+        if _candidato_em_zona_jogador(candidate, players, frame_shape) and not _prior_confirma_candidato(candidate, prior_bola):
+            # TrackNet can still light up rackets/clothes. Keep contact points only
+            # when they agree with an existing temporal prior.
+            if not ball_track:
+                contato_forte = candidate.confidence >= 0.82 and motion_score >= 0.18 and yellow_ratio >= 0.045
+                if not contato_forte:
+                    continue
+            elif math.hypot(candidate.x - float(ball_track[-1][0]), candidate.y - float(ball_track[-1][1])) > max(22.0, min(frame_shape[:2]) * 0.040):
+                continue
 
-    if not _candidato_bola_em_escopo_de_tracking(candidate, calibracao, frame_shape, ball_track, prior_bola):
-        return None
-    if ball_track and not _movimento_bola_cinematico_valido(candidate, ball_track, frame_shape, prior_bola):
-        return None
+        if not _candidato_bola_em_escopo_de_tracking(candidate, calibracao, frame_shape, ball_track, prior_bola):
+            if not (reacquisicao_modelo_forte and _bola_renderizavel_no_escopo(candidate, calibracao, frame_shape)):
+                continue
+            candidate.source = "tracknet_reacquired"
+        if ball_track and not _movimento_bola_cinematico_valido(candidate, ball_track, frame_shape, prior_bola):
+            if not (reacquisicao_modelo_forte and _bola_renderizavel_no_escopo(candidate, calibracao, frame_shape)):
+                continue
+            candidate.source = "tracknet_reacquired"
 
-    score = (
-        0.34
-        + candidate.confidence * 0.38
-        + min(motion_score * 2.6, 1.0) * 0.16
-        + min(yellow_ratio * 2.4, 1.0) * 0.08
-        + min(peak_z / 8.0, 1.0) * 0.08
-        + min(peak_margin / 0.16, 1.0) * 0.06
-    )
-    score = _score_bola_contextual(score, candidate, players, ball_track, frame_shape, prior_bola)
-    return score, candidate
+        score = (
+            0.34
+            + candidate.confidence * 0.38
+            + min(motion_score * 2.6, 1.0) * 0.16
+            + min(yellow_ratio * 2.4, 1.0) * 0.08
+            + min(peak_z / 8.0, 1.0) * 0.08
+            + min(peak_margin / 0.16, 1.0) * 0.06
+        )
+        score = _score_bola_contextual(score, candidate, players, ball_track, frame_shape, prior_bola)
+        if rank > 0:
+            score -= min(0.20, 0.055 * rank)
+        if candidate.source == "tracknet_reacquired":
+            score = max(score, 0.74)
+        if score >= (0.46 if prior_bola is not None else 0.52):
+            candidatos.append((score, candidate))
+    candidatos.sort(key=lambda item: item[0], reverse=True)
+    return candidatos
 
 
 def _metricas_locais_candidato_tracknet(
@@ -3519,17 +4382,18 @@ def _candidato_reaquisicao_bola_valido(
     players: list[DetectionBox],
     frame_shape: tuple[int, int, int],
 ) -> bool:
-    if candidate.source in {"tracknet", "tracknet_reacquired"}:
+    source = _fonte_bola_normalizada(candidate.source)
+    if source == "tracknet":
         if candidate.confidence < 0.68:
             return False
         if candidate.motion_score < 0.065 and candidate.yellow_ratio < 0.045:
             return False
-    elif candidate.source in {"ball_yolo", "ball_yolo_reacquired"}:
+    elif source == "ball_yolo":
         if candidate.confidence < 0.43:
             return False
         if candidate.motion_score < 0.020 and candidate.yellow_ratio < 0.12 and candidate.confidence < 0.66:
             return False
-    elif candidate.source == "bright_motion":
+    elif source == "bright_motion":
         if candidate.confidence < 0.42:
             return False
         if candidate.motion_score < 0.050 or candidate.yellow_ratio < 0.030:
@@ -3541,7 +4405,7 @@ def _candidato_reaquisicao_bola_valido(
     if _candidato_sobre_linha_branca(hsv, candidate, candidate.motion_score, candidate.yellow_ratio):
         return False
     if _candidato_em_zona_jogador(candidate, players, frame_shape):
-        return candidate.source in {"ball_yolo", "bright_motion"} and candidate.confidence >= 0.68 and candidate.motion_score >= 0.12
+        return source in {"ball_yolo", "bright_motion"} and candidate.confidence >= 0.68 and candidate.motion_score >= 0.12
     return True
 
 
@@ -3577,6 +4441,8 @@ def _candidato_reaquisicao_em_janela(
     )
     if candidate.confidence >= 0.80 and candidate.motion_score >= 0.16:
         gate *= 1.18
+    if _candidato_modelo_bola_forte(candidate):
+        gate *= 1.20
     if pred_conf < 0.46:
         gate *= 1.08
     return dist_pred <= gate
@@ -3988,7 +4854,7 @@ def _candidatos_bola_amplos(
     motion_mask = _mask_movimento(frame, frame_anterior)
     candidatos: list[BallDetection] = []
 
-    tracknet = _candidato_bola_tracknet(
+    tracknets = _candidatos_bola_tracknet(
         frame=frame,
         frame_anterior=frame_anterior,
         frame_pre_anterior=frame_pre_anterior,
@@ -3997,9 +4863,9 @@ def _candidatos_bola_amplos(
         ball_track=[],
         prior_bola=None,
         calibracao=calibracao,
+        max_candidates=_int_env("TENNIS_XRAY_TRACKNET_GLOBAL_TOPK", 5),
     )
-    if tracknet is not None:
-        candidatos.append(tracknet[1])
+    candidatos.extend([candidato for _, candidato in tracknets])
     candidatos.extend([
         candidato
         for _, candidato in _candidatos_bola_yolo(
@@ -4676,6 +5542,8 @@ def _bola_predita_por_rastro(
         return None
 
     max_falhas = _int_env("TENNIS_XRAY_BALL_PREDICT_MAX_GAPS", 36)
+    if _candidato_modelo_bola_forte(ultima_bola):
+        max_falhas = max(max_falhas, _int_env("TENNIS_XRAY_BALL_PREDICT_STRONG_MAX_GAPS", 96))
     if falhas_consecutivas >= max_falhas:
         return None
 
@@ -4758,7 +5626,7 @@ def _movimento_bola_cinematico_valido(
     # distantes da previsao. Isso evita linhas quase retas para cima quando a
     # bola real esta caindo.
     if dist_pred > gate_pred * 1.45:
-        if candidate.source in {"small_prior", "visual_smoothed"}:
+        if _fonte_bola_normalizada(candidate.source) in {"small_prior", "visual_smoothed"}:
             return False
         if abs(dy) > max(12.0, min_dim * 0.018) and not _prior_confirma_candidato(candidate, prior_bola):
             return False
@@ -4772,7 +5640,8 @@ def _validar_bola_temporal(
     frame_shape: tuple[int, int, int],
     prior_bola: BallPrior | None,
 ) -> bool:
-    if bola.source in {"manual_anchor", "calibrated_fill"}:
+    source = _fonte_bola_normalizada(bola.source)
+    if source in {"manual_anchor", "calibrated_fill", "manual_seed"}:
         return True
 
     h, w = frame_shape[:2]
@@ -4784,7 +5653,7 @@ def _validar_bola_temporal(
     if not ball_track:
         return True
 
-    if bola.source.endswith("_reacquired"):
+    if str(bola.source).endswith("_reacquired"):
         return bola.confidence >= 0.50 and (bola.motion_score >= 0.030 or bola.yellow_ratio >= 0.14)
 
     last_x, last_y = ball_track[-1]
@@ -4865,8 +5734,97 @@ def _confirmar_inicio_rastro_bola(
     return primeiro_idx, primeira_bola
 
 
+def _max_predicoes_render_bola(ultima_bola: BallDetection | None) -> int:
+    base = _int_env("TENNIS_XRAY_BALL_RENDER_PREDICT_MAX_GAPS", 8)
+    if ultima_bola is not None and _candidato_modelo_bola_forte(ultima_bola):
+        return max(base, _int_env("TENNIS_XRAY_BALL_RENDER_PREDICT_STRONG_MAX_GAPS", 96))
+    return base
+
+
+def _hard_reset_frames_bola(fps_original: float, hard_reset_bola_s: float, ultima_bola: BallDetection | None) -> int:
+    base = max(4, int(round(max(fps_original, 1.0) * hard_reset_bola_s)))
+    if ultima_bola is not None and _candidato_modelo_bola_forte(ultima_bola):
+        forte_s = _float_env("TENNIS_XRAY_BALL_STRONG_HARD_RESET_GAP_S", 2.75)
+        return max(base, int(round(max(fps_original, 1.0) * forte_s)))
+    return base
+
+
+def _bola_alimenta_tracking_local(bola: BallDetection, vem_de_trajetoria_global: bool) -> bool:
+    if bola.source == "trajectory_prediction":
+        return False
+    if not vem_de_trajetoria_global:
+        return True
+    fonte = _fonte_bola_normalizada(bola.source)
+    if fonte in {"manual_anchor", "calibrated_fill", "manual_seed"}:
+        return True
+    return _candidato_modelo_bola_forte(bola)
+
+
+def _candidato_inicio_imediato_rastro_bola(bola: BallDetection) -> bool:
+    if bola.source in {"manual_anchor", "calibrated_fill"}:
+        return True
+    source = _fonte_bola_normalizada(bola.source)
+    if source == "tracknet":
+        return bola.confidence >= 0.78 and bola.motion_score >= 0.070 and bola.yellow_ratio >= 0.045
+    if source == "ball_yolo":
+        return bola.confidence >= 0.62 and bola.motion_score >= 0.075 and bola.yellow_ratio >= 0.180
+    return False
+
+
+def _candidato_modelo_bola_forte(bola: BallDetection) -> bool:
+    source = _fonte_bola_normalizada(bola.source)
+    if source == "tracknet":
+        return bola.confidence >= 0.76 and (
+            bola.motion_score >= 0.070
+            or bola.yellow_ratio >= 0.100
+            or (bola.confidence >= 0.86 and bola.yellow_ratio >= 0.055)
+        )
+    if source == "ball_yolo":
+        return bola.confidence >= 0.62 and (
+            bola.motion_score >= 0.100
+            or bola.yellow_ratio >= 0.350
+            or bola.confidence >= 0.72
+        )
+    return False
+
+
+def _candidato_substitui_predicao_global(
+    candidato: BallDetection | None,
+    predicao_global: BallDetection,
+    frame_shape: tuple[int, int, int],
+    players: list[DetectionBox],
+    calibracao: dict | None,
+) -> bool:
+    if candidato is None or predicao_global.source != "trajectory_prediction":
+        return False
+    if not _candidato_modelo_bola_forte(candidato):
+        return False
+    if _candidato_bola_em_borda_frame(candidato, frame_shape):
+        return False
+    if not _candidato_bola_no_corredor_quadra_central(candidato, calibracao, frame_shape):
+        return False
+    if not _bola_renderizavel_no_escopo(candidato, calibracao, frame_shape):
+        return False
+
+    dist_predicao = math.hypot(candidato.x - predicao_global.x, candidato.y - predicao_global.y)
+    if dist_predicao < max(18.0, min(frame_shape[:2]) * 0.020):
+        return candidato.confidence >= predicao_global.confidence + 0.02
+
+    if _candidato_em_zona_jogador(candidato, players, frame_shape):
+        source = _fonte_bola_normalizada(candidato.source)
+        if source == "tracknet":
+            return candidato.confidence >= 0.84 and candidato.motion_score >= 0.14 and candidato.yellow_ratio >= 0.045
+        if source == "ball_yolo":
+            return candidato.confidence >= 0.68 and candidato.motion_score >= 0.12 and candidato.yellow_ratio >= 0.18
+        return False
+
+    return True
+
+
 def _suavizar_bola_com_prior(bola: BallDetection, prior_bola: BallPrior | None) -> BallDetection:
     if prior_bola is None or bola.source in {"manual_anchor", "calibrated_fill"}:
+        return bola
+    if _fonte_bola_normalizada(bola.source) in {"tracknet", "ball_yolo"}:
         return bola
     dist_prior = _distancia_prior(bola, prior_bola)
     if dist_prior > max(18.0, prior_bola.gate_px * 0.9):
@@ -5594,7 +6552,7 @@ def _desenhar_frame(
         for p1, p2 in zip(pts, pts[1:]):
             if math.hypot(p2[0] - p1[0], p2[1] - p1[1]) > max_segmento:
                 continue
-            cv2.line(canvas, p1, p2, (66, 246, 255), 2)
+            cv2.line(canvas, p1, p2, (66, 246, 255), 3)
 
     if bola is not None:
         center = (int(bola.x * sx), int(bola.y * sy))

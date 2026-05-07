@@ -22,6 +22,7 @@ class TrackNetCandidate:
     peak_z: float = 0.0
     peak_margin: float = 0.0
     background_mean: float = 0.0
+    rank: int = 0
 
 
 class TrackNetV1FallbackArchitecture:
@@ -88,6 +89,8 @@ class TrackNetBallTracker:
         self.min_confidence = _float_env("TENNIS_XRAY_TRACKNET_MIN_CONF", 0.16)
         self.min_peak_z = _float_env("TENNIS_XRAY_TRACKNET_MIN_PEAK_Z", 2.75)
         self.min_peak_margin = _float_env("TENNIS_XRAY_TRACKNET_MIN_PEAK_MARGIN", 0.018)
+        self.max_candidates = max(1, _int_env("TENNIS_XRAY_TRACKNET_TOPK", 5))
+        self.nms_radius = max(5, _int_env("TENNIS_XRAY_TRACKNET_TOPK_NMS_RADIUS", 0))
         self.weights_path = _resolve_weights_path()
         self._model: Any | None = None
         self._device: str | None = None
@@ -105,15 +108,31 @@ class TrackNetBallTracker:
         frame_prev1: np.ndarray | None,
         frame_curr: np.ndarray,
     ) -> TrackNetCandidate | None:
+        candidates = self.detect_many(frame_prev2, frame_prev1, frame_curr, max_candidates=1)
+        return candidates[0] if candidates else None
+
+    def detect_many(
+        self,
+        frame_prev2: np.ndarray | None,
+        frame_prev1: np.ndarray | None,
+        frame_curr: np.ndarray,
+        max_candidates: int | None = None,
+    ) -> list[TrackNetCandidate]:
         if not self.enabled:
-            return None
+            return []
         self._ensure_loaded()
         if not self._available or self._model is None or self._device is None:
-            return None
+            return []
 
+        # Training samples are stored as prev/curr/next, with the label on the
+        # middle frame. At runtime we do not always have lookahead, so duplicate
+        # the current frame as the next slot instead of shifting curr into the
+        # last slot. Feeding prev2/prev1/curr makes the heatmap one frame out of
+        # phase on fast rallies and creates the visible tracking delay.
+        prev_frame = frame_prev1 if frame_prev1 is not None else frame_prev2
         frames = [
-            frame_prev2 if frame_prev2 is not None else frame_curr,
-            frame_prev1 if frame_prev1 is not None else frame_curr,
+            prev_frame if prev_frame is not None else frame_curr,
+            frame_curr,
             frame_curr,
         ]
         if any(frame is None or frame.shape[:2] != frame_curr.shape[:2] for frame in frames):
@@ -128,26 +147,60 @@ class TrackNetBallTracker:
                 output = self._model(tensor)
             heatmap = self._extract_heatmap(output)
             if heatmap is None:
-                return None
+                return []
 
             heatmap = cv2.GaussianBlur(heatmap, (5, 5), 0).astype(np.float32)
-            _, max_val, _, max_loc = cv2.minMaxLoc(heatmap)
+            return self._heatmap_candidates(
+                heatmap,
+                frame_shape=frame_curr.shape,
+                max_candidates=max_candidates or self.max_candidates,
+            )
+        except Exception as exc:
+            logger.debug("TrackNet inference failed: %s", exc)
+            return []
+
+    def _heatmap_candidates(
+        self,
+        heatmap: np.ndarray,
+        frame_shape: tuple[int, ...],
+        max_candidates: int,
+    ) -> list[TrackNetCandidate]:
+        finite = np.nan_to_num(heatmap.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+        search = finite.copy()
+        candidates: list[TrackNetCandidate] = []
+        attempts = max(1, int(max_candidates)) * 4
+        suppress_radius = self.nms_radius
+        if suppress_radius <= 0:
+            suppress_radius = max(5, int(round(min(self.input_width, self.input_height) * 0.022)))
+
+        for _attempt in range(attempts):
+            if len(candidates) >= max_candidates:
+                break
+            _, max_val, _, max_loc = cv2.minMaxLoc(search)
             raw_confidence = float(max_val)
-            peak_z, peak_margin, background_mean = self._heatmap_peak_quality(heatmap, max_loc, raw_confidence)
             if raw_confidence < self.min_confidence:
-                return None
+                break
+
+            peak_z, peak_margin, background_mean = self._heatmap_peak_quality_from_maps(
+                finite,
+                search,
+                max_loc,
+                raw_confidence,
+            )
+            cv2.circle(search, (int(max_loc[0]), int(max_loc[1])), suppress_radius, 0.0, -1)
+
             # Newly trained or under-trained heatmap models often output a
             # nearly flat map around 0.5. A raw max from that map is not a real
             # detection; require the max to stand out from the background.
             if peak_z < self.min_peak_z:
-                return None
+                continue
             if peak_margin < self.min_peak_margin and raw_confidence < 0.78:
-                return None
+                continue
             if peak_margin < self.min_peak_margin * 0.45:
-                return None
+                continue
 
             x_model, y_model = max_loc
-            h, w = frame_curr.shape[:2]
+            h, w = frame_shape[:2]
             x = float(x_model) * (w / max(self.input_width, 1))
             y = float(y_model) * (h / max(self.input_height, 1))
             radius = max(2.0, min(w, h) * 0.0045)
@@ -160,19 +213,23 @@ class TrackNetBallTracker:
                     + min(peak_margin / 0.22, 1.0) * 0.15,
                 ),
             )
-            return TrackNetCandidate(
-                x=x,
-                y=y,
-                radius=radius,
-                confidence=confidence,
-                heatmap_score=raw_confidence,
-                peak_z=peak_z,
-                peak_margin=peak_margin,
-                background_mean=background_mean,
+            rank = len(candidates)
+            if rank > 0:
+                confidence *= max(0.68, 1.0 - rank * 0.10)
+            candidates.append(
+                TrackNetCandidate(
+                    x=x,
+                    y=y,
+                    radius=radius,
+                    confidence=confidence,
+                    heatmap_score=raw_confidence,
+                    peak_z=peak_z,
+                    peak_margin=peak_margin,
+                    background_mean=background_mean,
+                    rank=rank,
+                )
             )
-        except Exception as exc:
-            logger.debug("TrackNet inference failed: %s", exc)
-            return None
+        return candidates
 
     def _heatmap_peak_quality(
         self,
@@ -181,12 +238,21 @@ class TrackNetBallTracker:
         max_val: float,
     ) -> tuple[float, float, float]:
         finite = np.nan_to_num(heatmap.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+        return self._heatmap_peak_quality_from_maps(finite, finite, max_loc, max_val)
+
+    def _heatmap_peak_quality_from_maps(
+        self,
+        finite: np.ndarray,
+        search: np.ndarray,
+        max_loc: tuple[int, int],
+        max_val: float,
+    ) -> tuple[float, float, float]:
         mean = float(np.mean(finite))
         std = float(np.std(finite))
         peak_z = (float(max_val) - mean) / max(std, 1e-6)
 
         x, y = max_loc
-        masked = finite.copy()
+        masked = search.copy()
         radius = max(5, int(round(min(self.input_width, self.input_height) * 0.018)))
         cv2.circle(masked, (int(x), int(y)), radius, 0.0, -1)
         secondary = float(np.max(masked)) if masked.size else 0.0

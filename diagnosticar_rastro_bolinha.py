@@ -23,6 +23,8 @@ from backend.app.servicos.visao_video_real import (  # noqa: E402
     _bola_renderizavel_no_escopo,
     _candidato_bola_em_borda_frame,
     _candidato_bola_no_corredor_quadra_central,
+    _candidato_modelo_bola_forte,
+    _candidato_substitui_predicao_global,
     _candidatos_bola_amplos,
     _expandir_trajetoria_global_para_indices_render,
     _metadata_modelo_tracknet,
@@ -30,6 +32,7 @@ from backend.app.servicos.visao_video_real import (  # noqa: E402
     _poligono_quadra_video_px,
     _precalcular_trajetoria_bola_global,
     _reduzir_indices_trajetoria_global,
+    _trajetoria_global_render_confiavel,
 )
 
 
@@ -41,9 +44,14 @@ def main() -> int:
         print("Video original nao encontrado ou nao selecionado.")
         return 1
 
-    analisado = Path(args.analisado).expanduser().resolve() if args.analisado else None
-    if analisado is not None and not analisado.exists():
-        print(f"Video analisado nao encontrado: {analisado}")
+    analisado = Path(args.analisado).expanduser().resolve() if args.analisado else _selecionar_arquivo("Selecione o video de ANALISE")
+    if analisado is None or not analisado.exists():
+        print("Video de analise nao encontrado ou nao selecionado.")
+        return 1
+
+    debug = Path(args.debug).expanduser().resolve() if args.debug else _selecionar_arquivo_debug()
+    if debug is None or not debug.exists():
+        print("Arquivo debug nao encontrado ou nao selecionado.")
         return 1
 
     saida_base = Path(args.saida).expanduser().resolve() if args.saida else _selecionar_pasta()
@@ -55,8 +63,11 @@ def main() -> int:
     saida = saida_base / f"diagnostico_rastro_{timestamp}"
     frames_dir = saida / "frames"
     frames_dir.mkdir(parents=True, exist_ok=True)
+    crops_dir = saida / "crops_candidatos"
+    if not args.sem_crops:
+        crops_dir.mkdir(parents=True, exist_ok=True)
 
-    calibracao = _carregar_calibracao(args.debug)
+    calibracao = _carregar_calibracao(str(debug))
     if calibracao is None:
         print("")
         print("ATENCAO: diagnostico sem calibracao de quadra.")
@@ -79,7 +90,7 @@ def main() -> int:
     print("=== Diagnostico do rastro da bolinha ===")
     print(f"Original: {original}")
     print(f"Analisado: {analisado or 'nao informado'}")
-    print(f"Debug/calibracao: {args.debug or 'nao informado'}")
+    print(f"Debug/calibracao: {debug}")
     print(f"Saida: {saida}")
     print(f"Frames amostrados: {len(sample_indices)}")
 
@@ -104,6 +115,7 @@ def main() -> int:
     json_path = saida / "relatorio_diagnostico.json"
     rows: list[dict[str, Any]] = []
     resumo_frames: list[dict[str, Any]] = []
+    crops_salvos = 0
 
     with csv_path.open("w", newline="", encoding="utf-8") as csv_file:
         fieldnames = [
@@ -144,6 +156,33 @@ def main() -> int:
                 calibracao=calibracao,
             )
             selecionada = trajetoria_global.get(frame_idx)
+            if selecionada is not None and selecionada.source == "trajectory_prediction":
+                substituta = next(
+                    (
+                        candidato
+                        for candidato in candidatos
+                        if _candidato_substitui_predicao_global(
+                            candidato,
+                            selecionada,
+                            frame.shape,
+                            [],
+                            calibracao,
+                        )
+                    ),
+                    None,
+                )
+                if substituta is not None:
+                    selecionada = substituta
+            if selecionada is None:
+                selecionada = next(
+                    (
+                        candidato
+                        for candidato in candidatos
+                        if _candidato_modelo_bola_forte(candidato)
+                        and _bola_renderizavel_no_escopo(candidato, calibracao, frame.shape)
+                    ),
+                    None,
+                )
 
             frame_analisado = None
             if cap_analisado is not None and meta_analisado is not None:
@@ -177,11 +216,20 @@ def main() -> int:
                 row = _row_bola("selecionada", 0, frame_idx, tempo_s, selecionada, frame.shape, calibracao, selecionada)
                 writer.writerow(row)
                 rows.append(row)
+                if (
+                    not args.sem_crops
+                    and selecionada.source != "trajectory_prediction"
+                    and _salvar_crop_candidato(crops_dir, frame, selecionada, frame_idx, tempo_s, "selecionada", 0)
+                ):
+                    crops_salvos += 1
 
             for rank, candidato in enumerate(candidatos[: args.top_candidates], start=1):
                 row = _row_bola("candidato", rank, frame_idx, tempo_s, candidato, frame.shape, calibracao, selecionada)
                 writer.writerow(row)
                 rows.append(row)
+                if not args.sem_crops and _candidato_crop_util(candidato):
+                    if _salvar_crop_candidato(crops_dir, frame, candidato, frame_idx, tempo_s, "candidato", rank):
+                        crops_salvos += 1
 
             print(f"[{pos:03d}/{len(sample_indices):03d}] frame {frame_idx} | candidatos={len(candidatos)} | selecionada={selecionada.source if selecionada else 'nenhuma'}")
 
@@ -193,13 +241,15 @@ def main() -> int:
         "gerado_em": datetime.now().isoformat(timespec="seconds"),
         "original": str(original),
         "analisado": str(analisado) if analisado else None,
-        "debug": str(Path(args.debug).expanduser().resolve()) if args.debug else None,
+        "debug": str(debug),
         "saida": str(saida),
         "metadata_original": meta_original,
         "metadata_analisado": meta_analisado,
         "calibracao_presente": calibracao is not None,
         "frames": resumo_frames,
         "csv": str(csv_path.resolve()),
+        "crops_candidatos": str(crops_dir.resolve()) if not args.sem_crops else None,
+        "crops_salvos": crops_salvos,
         "ambiente": _ambiente_relevante(),
         "modelos": {
             "tracknet": _metadata_modelo_tracknet(),
@@ -219,6 +269,8 @@ def main() -> int:
         print(f"Grade visual: {grade_path}")
     print(f"CSV: {csv_path}")
     print(f"JSON: {json_path}")
+    if not args.sem_crops:
+        print(f"Crops candidatos: {crops_dir} ({crops_salvos})")
     if args.abrir_pasta and os.name == "nt":
         os.startfile(str(saida))  # type: ignore[attr-defined]
     return 0
@@ -229,7 +281,7 @@ def _parse_args() -> argparse.Namespace:
         description="Gera screenshots e logs tecnicos para diagnosticar por que o rastro da bolinha escolhe artefatos."
     )
     parser.add_argument("--original", help="Video original usado no teste.")
-    parser.add_argument("--analisado", help="Video analisado/renderizado pela aplicacao, opcional.")
+    parser.add_argument("--analisado", help="Video analisado/renderizado pela aplicacao.")
     parser.add_argument("--debug", help="JSON de calibracao ou .debug.json gerado pela aplicacao.")
     parser.add_argument("--saida", help="Pasta onde salvar screenshots e relatorios.")
     parser.add_argument("--inicio", type=float, default=0.0, help="Tempo inicial em segundos.")
@@ -240,6 +292,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--image-width", type=int, default=1800, help="Largura maxima da imagem de diagnostico.")
     parser.add_argument("--sem-solver", action="store_true", help="Nao roda o solver global; mostra apenas candidatos por frame.")
     parser.add_argument("--sem-grade", action="store_true", help="Nao gera a grade unica com miniaturas dos screenshots.")
+    parser.add_argument("--sem-crops", action="store_true", help="Nao exporta recortes dos candidatos para revisao/treino.")
     parser.add_argument("--abrir-pasta", action="store_true", help="Abre a pasta de diagnostico ao finalizar no Windows.")
     return parser.parse_args()
 
@@ -275,13 +328,14 @@ def _resolver_trajetoria_global_para_diagnostico(
         progress_start=0.0,
         progress_end=100.0,
     )
-    return _expandir_trajetoria_global_para_indices_render(
+    expandida = _expandir_trajetoria_global_para_indices_render(
         trajetoria_sparse=sparse,
         indices_render=indices_render,
         fps_original=fps,
         calibracao=calibracao,
         frame_shape=frame_shape,
     )
+    return expandida if _trajetoria_global_render_confiavel(sparse, expandida) else {}
 
 
 def _desenhar_debug_frame(
@@ -413,6 +467,57 @@ def _motivo_rejeicao_bola(
     return "|".join(motivos) if motivos else "aceito"
 
 
+def _candidato_crop_util(bola: BallDetection) -> bool:
+    if bola.source in {"manual_anchor", "calibrated_fill"}:
+        return True
+    if bola.source == "tracknet":
+        return (
+            bola.confidence >= 0.70
+            and bola.motion_score >= 0.050
+            and bola.yellow_ratio >= 0.045
+        )
+    if bola.source == "ball_yolo":
+        return (
+            bola.confidence >= 0.58
+            and bola.motion_score >= 0.075
+            and bola.yellow_ratio >= 0.120
+        )
+    if bola.source in {"beam_candidate", "beam_contact"}:
+        return bola.confidence >= 0.56 and (
+            bola.motion_score >= 0.50
+            or (bola.motion_score >= 0.24 and bola.yellow_ratio >= 0.120)
+        )
+    return False
+
+
+def _salvar_crop_candidato(
+    crops_dir: Path,
+    frame: np.ndarray,
+    bola: BallDetection,
+    frame_idx: int,
+    tempo_s: float,
+    tipo: str,
+    rank: int,
+) -> bool:
+    h, w = frame.shape[:2]
+    margem = int(round(max(36.0, bola.radius * 8.0)))
+    cx = int(round(bola.x))
+    cy = int(round(bola.y))
+    x0 = max(0, cx - margem)
+    y0 = max(0, cy - margem)
+    x1 = min(w, cx + margem + 1)
+    y1 = min(h, cy + margem + 1)
+    if x1 <= x0 or y1 <= y0:
+        return False
+    crop = frame[y0:y1, x0:x1].copy()
+    nome = (
+        f"{tipo}_f{frame_idx:06d}_{tempo_s:07.3f}s_r{rank:02d}_"
+        f"{bola.source}_c{bola.confidence:.3f}_m{bola.motion_score:.3f}_y{bola.yellow_ratio:.3f}.jpg"
+    )
+    nome = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in nome)
+    return bool(cv2.imwrite(str(crops_dir / nome), crop, [int(cv2.IMWRITE_JPEG_QUALITY), 95]))
+
+
 def _desenhar_poligono_quadra(frame: np.ndarray, calibracao: dict | None) -> None:
     poligono = _poligono_quadra_video_px(calibracao, frame.shape)
     if poligono is not None:
@@ -524,6 +629,21 @@ def _selecionar_arquivo(title: str) -> Path | None:
     root = Tk()
     root.withdraw()
     value = filedialog.askopenfilename(title=title, filetypes=[("Videos", "*.mp4 *.mov *.m4v *.avi *.mkv"), ("Todos", "*.*")])
+    root.destroy()
+    return Path(value).resolve() if value else None
+
+
+def _selecionar_arquivo_debug() -> Path | None:
+    try:
+        from tkinter import Tk, filedialog
+    except Exception:
+        return None
+    root = Tk()
+    root.withdraw()
+    value = filedialog.askopenfilename(
+        title="Selecione o arquivo DEBUG",
+        filetypes=[("Arquivos debug/JSON", "*.debug.json *.json"), ("Todos", "*.*")],
+    )
     root.destroy()
     return Path(value).resolve() if value else None
 
