@@ -514,7 +514,7 @@ def analisar_video_real(
             bola,
             fps_original,
         )
-        if len(ball_track_visual) < 2:
+        if not ball_track_visual:
             ball_track_visual = ball_track[-_max_pontos_rastro_visual(fps_original):]
 
         anotado = _desenhar_frame(
@@ -6546,26 +6546,20 @@ def _desenhar_frame(
         cv2.putText(canvas, label, (x1 + 8, max(17, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.52, color, 2)
         _desenhar_esqueleto_estimado(canvas, (x1, y1, x2, y2), color)
 
-    if len(ball_track) > 1:
-        pts = [(int(x * sx), int(y * sy)) for x, y in ball_track]
-        max_segmento = max(96.0, min(output_size) * 0.28)
-        for p1, p2 in zip(pts, pts[1:]):
-            if math.hypot(p2[0] - p1[0], p2[1] - p1[1]) > max_segmento:
-                continue
-            cv2.line(canvas, p1, p2, (66, 246, 255), 3)
-
     if bola is not None:
         center = (int(bola.x * sx), int(bola.y * sy))
-        radius = max(5, int(bola.radius * (sx + sy) / 2))
-        cor_bola = (74, 244, 255)
-        if bola.source == "manual_anchor":
-            cor_bola = (97, 255, 116)
-        elif bola.source in {"calibrated_fill", "trajectory_prediction"}:
-            cor_bola = (0, 190, 255)
-        cv2.circle(canvas, center, radius + 5, (0, 0, 0), 2)
-        cv2.circle(canvas, center, radius, cor_bola, -1)
-        rotulo_bola = "bola" if bola.source not in {"calibrated_fill", "trajectory_prediction"} else "bola estimada"
-        cv2.putText(canvas, f"{rotulo_bola} {bola.confidence:.2f}", (center[0] + 12, center[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, cor_bola, 2)
+        raio_base = max(5, int(bola.radius * (sx + sy) / 2))
+    elif ball_track:
+        ultimo_x, ultimo_y = ball_track[-1]
+        center = (int(ultimo_x * sx), int(ultimo_y * sy))
+        raio_base = max(5, int(min(output_size) * 0.006))
+    else:
+        center = None
+
+    if center is not None:
+        raio_marcacao = max(8, raio_base + 4)
+        cv2.circle(canvas, center, raio_marcacao + 1, (0, 0, 0), 1)
+        cv2.circle(canvas, center, raio_marcacao, (0, 255, 255), 2)
 
     return canvas
 

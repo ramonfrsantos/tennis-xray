@@ -73,8 +73,29 @@ const elementos = {
   jogadorFocoPlayerFocus: document.querySelector("#jogador-foco-player-focus"),
   rangeTempoPlayerFocus: document.querySelector("#range-tempo-player-focus"),
   tempoPlayerFocus: document.querySelector("#tempo-player-focus"),
+  framePlayerFocus: document.querySelector("#frame-player-focus"),
+  botaoFrameAnteriorPlayerFocus: document.querySelector("#botao-frame-anterior-player-focus"),
+  botaoFrameProximoPlayerFocus: document.querySelector("#botao-frame-proximo-player-focus"),
+  botaoSalvarAlvoFramePlayerFocus: document.querySelector("#botao-salvar-alvo-frame-player-focus"),
+  botaoLimparAlvoFramePlayerFocus: document.querySelector("#botao-limpar-alvo-frame-player-focus"),
+  listaAlvosManuaisPlayerFocus: document.querySelector("#lista-alvos-manuais-player-focus"),
+  segmentoInicioPlayerFocus: document.querySelector("#segmento-inicio-player-focus"),
+  segmentoFimPlayerFocus: document.querySelector("#segmento-fim-player-focus"),
+  segmentoFocoPlayerFocus: document.querySelector("#segmento-foco-player-focus"),
+  inicioCortePlayerFocus: document.querySelector("#inicio-corte-player-focus"),
+  botaoCortarTrechoPlayerFocus: document.querySelector("#botao-cortar-trecho-player-focus"),
+  botaoAdicionarSegmentoPlayerFocus: document.querySelector("#botao-adicionar-segmento-player-focus"),
+  listaSegmentosPlayerFocus: document.querySelector("#lista-segmentos-player-focus"),
   rangeZoomPlayerFocus: document.querySelector("#range-zoom-player-focus"),
   zoomPlayerFocus: document.querySelector("#zoom-player-focus"),
+  rangeNitidezPlayerFocus: document.querySelector("#range-nitidez-player-focus"),
+  nitidezPlayerFocus: document.querySelector("#nitidez-player-focus"),
+  rangeDefinicaoPlayerFocus: document.querySelector("#range-definicao-player-focus"),
+  definicaoPlayerFocus: document.querySelector("#definicao-player-focus"),
+  rangeBrilhoPlayerFocus: document.querySelector("#range-brilho-player-focus"),
+  brilhoPlayerFocus: document.querySelector("#brilho-player-focus"),
+  rangeSaturacaoPlayerFocus: document.querySelector("#range-saturacao-player-focus"),
+  saturacaoPlayerFocus: document.querySelector("#saturacao-player-focus"),
   botaoFecharPlayerFocus: document.querySelector("#botao-fechar-player-focus"),
   botaoMarcarP1PlayerFocus: document.querySelector("#botao-marcar-p1-player-focus"),
   botaoMarcarP2PlayerFocus: document.querySelector("#botao-marcar-p2-player-focus"),
@@ -85,6 +106,48 @@ const elementos = {
   campoAnotacao: document.querySelector("#campo-anotacao"),
   statusAnotacao: document.querySelector("#status-anotacao"),
 };
+
+function criarEstadoPadraoPlayerFocus(sobrescritas = {}) {
+  return {
+    calibracaoId: null,
+    imagem: null,
+    frameUrl: null,
+    frameRequestSeq: 0,
+    frameKeyboardTimer: null,
+    frameKeyboardPending: false,
+    tempo: 0,
+    frameIndex: 0,
+    playerCount: 2,
+    focusPlayer: "p1",
+    aspectRatio: "9:16",
+    zoomFactor: 1.35,
+    manualTargetMode: false,
+    manualTargets: {},
+    cutStartFrame: 0,
+    focusSegments: [],
+    imageAdjustments: {
+      sharpness: 0.42,
+      definition: 1.35,
+      brightness: 0,
+      saturation: 1,
+    },
+    etapa: "p1",
+    anchors: { p1: null, p2: null },
+    jobId: null,
+    downloadUrl: null,
+    polling: null,
+    renderizando: false,
+    pan: {
+      ativo: false,
+      movido: false,
+      inicioX: 0,
+      inicioY: 0,
+      scrollLeft: 0,
+      scrollTop: 0,
+    },
+    ...sobrescritas,
+  };
+}
 
 const estado = {
   dados: null,
@@ -133,30 +196,7 @@ const estado = {
   downloadSaqueJobId: null,
   downloadSaqueUrl: null,
   downloadSaqueErro: "",
-  playerFocus: {
-    calibracaoId: null,
-    imagem: null,
-    frameUrl: null,
-    tempo: 0,
-    playerCount: 2,
-    focusPlayer: "p1",
-    aspectRatio: "9:16",
-    zoomFactor: 1.35,
-    etapa: "p1",
-    anchors: { p1: null, p2: null },
-    jobId: null,
-    downloadUrl: null,
-    polling: null,
-    renderizando: false,
-    pan: {
-      ativo: false,
-      movido: false,
-      inicioX: 0,
-      inicioY: 0,
-      scrollLeft: 0,
-      scrollTop: 0,
-    },
-  },
+  playerFocus: criarEstadoPadraoPlayerFocus(),
 };
 
 const PONTOS_QUADRA_CALIBRACAO = [
@@ -816,6 +856,83 @@ function iniciarCalibracaoArquivo(arquivo) {
   });
 }
 
+function resetarControlesPlayerFocus() {
+  pararPollingPlayerFocus();
+  cancelarCarregamentoFrameTecladoPlayerFocus();
+  const proximaSeq = (estado.playerFocus?.frameRequestSeq || 0) + 1;
+  estado.playerFocus = criarEstadoPadraoPlayerFocus({ frameRequestSeq: proximaSeq });
+
+  if (elementos.qtdJogadoresPlayerFocus) {
+    elementos.qtdJogadoresPlayerFocus.value = "2";
+  }
+  if (elementos.jogadorFocoPlayerFocus) {
+    elementos.jogadorFocoPlayerFocus.value = "p1";
+  }
+  if (elementos.rangeTempoPlayerFocus) {
+    elementos.rangeTempoPlayerFocus.min = "0";
+    elementos.rangeTempoPlayerFocus.max = "0";
+    elementos.rangeTempoPlayerFocus.step = "0.05";
+    elementos.rangeTempoPlayerFocus.value = "0";
+  }
+  if (elementos.tempoPlayerFocus) {
+    elementos.tempoPlayerFocus.textContent = "0,00s";
+  }
+  if (elementos.framePlayerFocus) {
+    elementos.framePlayerFocus.textContent = "Frame 0";
+  }
+  if (elementos.rangeZoomPlayerFocus) {
+    elementos.rangeZoomPlayerFocus.value = "1.35";
+  }
+  if (elementos.segmentoFocoPlayerFocus) {
+    elementos.segmentoFocoPlayerFocus.value = "p1";
+  }
+  if (elementos.rangeNitidezPlayerFocus) {
+    elementos.rangeNitidezPlayerFocus.value = "0.42";
+  }
+  if (elementos.rangeDefinicaoPlayerFocus) {
+    elementos.rangeDefinicaoPlayerFocus.value = "1.35";
+  }
+  if (elementos.rangeBrilhoPlayerFocus) {
+    elementos.rangeBrilhoPlayerFocus.value = "0";
+  }
+  if (elementos.rangeSaturacaoPlayerFocus) {
+    elementos.rangeSaturacaoPlayerFocus.value = "1";
+  }
+  document.querySelectorAll("[data-aspect-player-focus]").forEach((botao) => {
+    botao.classList.toggle("ativo", botao.dataset.aspectPlayerFocus === "9:16");
+  });
+  if (elementos.alvoPlayerFocus) {
+    elementos.alvoPlayerFocus.textContent = "Jogador 1";
+  }
+  if (elementos.progressoPlayerFocus) {
+    elementos.progressoPlayerFocus.textContent = "Clique no jogador em foco.";
+  }
+  if (elementos.botaoBaixarPlayerFocus) {
+    elementos.botaoBaixarPlayerFocus.classList.add("oculto");
+    elementos.botaoBaixarPlayerFocus.disabled = true;
+  }
+  if (elementos.botaoRenderPlayerFocus) {
+    elementos.botaoRenderPlayerFocus.disabled = true;
+  }
+  if (elementos.botaoLimparAlvoFramePlayerFocus) {
+    elementos.botaoLimparAlvoFramePlayerFocus.disabled = true;
+  }
+  if (elementos.botaoFrameAnteriorPlayerFocus) {
+    elementos.botaoFrameAnteriorPlayerFocus.disabled = true;
+  }
+  if (elementos.botaoFrameProximoPlayerFocus) {
+    elementos.botaoFrameProximoPlayerFocus.disabled = true;
+  }
+
+  sincronizarCamposTrechoPlayerFocus();
+  atualizarEstadoCortePlayerFocus();
+  atualizarLabelsAjustesPlayerFocus();
+  renderizarListasEditorPlayerFocus();
+  if (elementos.canvasPlayerFocus) {
+    desenharCanvasPlayerFocus();
+  }
+}
+
 function resetarPreparoCalibracaoArquivo() {
   cancelarFrameServidorPendente();
   if (estado.objetoUrlCalibracao) {
@@ -831,6 +948,7 @@ function resetarPreparoCalibracaoArquivo() {
   estado.frameServidorIndexAtual = null;
   estado.frameServidorSeq += 1;
   estado.calibracao = null;
+  resetarControlesPlayerFocus();
 }
 
 function abrirCalibracaoArquivoSelecionado() {
@@ -862,20 +980,35 @@ async function abrirModalPlayerFocus() {
   const arquivo = estado.arquivoUploadSelecionado || elementos.campoVideo.files?.[0];
   fecharModalCalibracao();
   pararPollingPlayerFocus();
+  cancelarCarregamentoFrameTecladoPlayerFocus();
+  const tempoInicial = estado.calibracao
+    ? Number(elementos.rangeTempoCalibracao?.value || 0)
+    : Number(elementos.rangeTempoPlayerFocus?.value || 0);
   estado.playerFocus = {
     ...estado.playerFocus,
     calibracaoId: estado.calibracaoServidorId,
     imagem: null,
-    tempo: Number(elementos.rangeTempoCalibracao?.value || elementos.rangeTempoPlayerFocus?.value || 0) || 0,
+    tempo: tempoInicial || 0,
+    frameIndex: 0,
     playerCount: Number(elementos.qtdJogadoresPlayerFocus?.value || 2),
     focusPlayer: elementos.jogadorFocoPlayerFocus?.value || "p1",
     aspectRatio: estado.playerFocus.aspectRatio || "9:16",
     zoomFactor: Number(elementos.rangeZoomPlayerFocus?.value || estado.playerFocus.zoomFactor || 1.35),
+    manualTargetMode: false,
+    manualTargets: estado.playerFocus.manualTargets || {},
+    cutStartFrame: 0,
+    focusSegments: estado.playerFocus.focusSegments || [],
+    imageAdjustments: {
+      ...(estado.playerFocus.imageAdjustments || {}),
+    },
     etapa: "p1",
     anchors: { p1: null, p2: null },
     jobId: null,
     downloadUrl: null,
     renderizando: false,
+    frameRequestSeq: (estado.playerFocus.frameRequestSeq || 0) + 1,
+    frameKeyboardTimer: null,
+    frameKeyboardPending: false,
   };
   elementos.botaoBaixarPlayerFocus.classList.add("oculto");
   elementos.botaoBaixarPlayerFocus.disabled = true;
@@ -896,11 +1029,13 @@ async function abrirModalPlayerFocus() {
     const duracao = Number(estado.calibracao?.video?.duration_s || 0);
     if (duracao > 0) {
       elementos.rangeTempoPlayerFocus.max = String(duracao);
+      const fps = fpsPlayerFocus();
+      elementos.rangeTempoPlayerFocus.step = String(1 / Math.max(fps, 1));
       estado.playerFocus.tempo = Math.min(Math.max(0, estado.playerFocus.tempo), duracao);
       elementos.rangeTempoPlayerFocus.value = String(estado.playerFocus.tempo);
     }
     await carregarFramePlayerFocus(estado.playerFocus.tempo);
-    elementos.progressoPlayerFocus.textContent = "Clique no Jogador 1.";
+    atualizarInterfacePlayerFocus();
   } catch (erro) {
     console.error(erro);
     elementos.progressoPlayerFocus.textContent = erro.message ?? "Falha ao preparar o Player Focus.";
@@ -910,7 +1045,16 @@ async function abrirModalPlayerFocus() {
 function fecharModalPlayerFocus() {
   elementos.modalPlayerFocus.classList.add("oculto");
   elementos.modalPlayerFocus.setAttribute("aria-hidden", "true");
+  cancelarCarregamentoFrameTecladoPlayerFocus();
   pararPollingPlayerFocus();
+}
+
+function modalPlayerFocusAberto() {
+  return Boolean(
+    elementos.modalPlayerFocus
+    && !elementos.modalPlayerFocus.classList.contains("oculto")
+    && elementos.modalPlayerFocus.getAttribute("aria-hidden") !== "true",
+  );
 }
 
 async function garantirVideoPlayerFocusPreparado(arquivo) {
@@ -953,19 +1097,186 @@ async function carregarFramePlayerFocus(tempo) {
   if (!id) {
     throw new Error("Video ainda nao preparado.");
   }
-  estado.playerFocus.tempo = Number(tempo || 0);
-  elementos.tempoPlayerFocus.textContent = `${formatarNumero(estado.playerFocus.tempo, " s")}`;
+  const requestSeq = (estado.playerFocus.frameRequestSeq || 0) + 1;
+  estado.playerFocus.frameRequestSeq = requestSeq;
+  atualizarSelecaoFramePlayerFocus(tempo, { sincronizarRange: true });
   const url = `/api/videos/calibracao/${id}/frame?tempo_s=${encodeURIComponent(estado.playerFocus.tempo)}&max_width=1600&v=${Date.now()}`;
   const imagem = new Image();
   imagem.decoding = "async";
-  await new Promise((resolve, reject) => {
-    imagem.onload = resolve;
-    imagem.onerror = () => reject(new Error("Nao foi possivel carregar o frame do Player Focus."));
+  const carregou = await new Promise((resolve, reject) => {
+    imagem.onload = () => resolve(true);
+    imagem.onerror = () => {
+      if (requestSeq !== estado.playerFocus.frameRequestSeq) {
+        resolve(false);
+        return;
+      }
+      reject(new Error("Nao foi possivel carregar o frame do Player Focus."));
+    };
     imagem.src = url;
   });
+  if (!carregou || requestSeq !== estado.playerFocus.frameRequestSeq) {
+    return false;
+  }
   estado.playerFocus.imagem = imagem;
   configurarCanvasPlayerFocus(imagem);
   desenharCanvasPlayerFocus();
+  return true;
+}
+
+function fpsPlayerFocus() {
+  return Math.max(1, Number(estado.calibracao?.video?.fps || 30));
+}
+
+function totalFramesPlayerFocus() {
+  const total = Number(estado.calibracao?.video?.frames_video || 0);
+  if (total > 0) {
+    return Math.max(1, Math.round(total));
+  }
+  return Math.max(1, Math.round(Number(estado.calibracao?.video?.duration_s || 0) * fpsPlayerFocus()));
+}
+
+function videoPlayerFocusPreparado() {
+  const video = estado.calibracao?.video || {};
+  return Boolean(
+    estado.playerFocus.calibracaoId
+    || estado.calibracaoServidorId
+    || Number(video.frames_video || 0) > 0
+    || Number(video.duration_s || 0) > 0
+  );
+}
+
+function frameAtualPlayerFocus(tempo = estado.playerFocus.tempo) {
+  return Math.max(0, Math.min(totalFramesPlayerFocus() - 1, Math.round(Number(tempo || 0) * fpsPlayerFocus())));
+}
+
+function tempoFramePlayerFocus(frame) {
+  return Math.max(0, Number(frame || 0) / fpsPlayerFocus());
+}
+
+function normalizarTempoPlayerFocus(tempo) {
+  const numero = Number(tempo || 0);
+  const duracao = Number(estado.calibracao?.video?.duration_s || elementos.rangeTempoPlayerFocus?.max || 0);
+  const tempoSeguro = Number.isFinite(numero) ? numero : 0;
+  if (duracao > 0) {
+    return Math.min(Math.max(0, tempoSeguro), duracao);
+  }
+  return Math.max(0, tempoSeguro);
+}
+
+function proximoInicioTrechoPlayerFocus() {
+  const totalFrames = totalFramesPlayerFocus();
+  const segmentos = estado.playerFocus.focusSegments || [];
+  if (!segmentos.length) {
+    return 0;
+  }
+  const ultimoFim = segmentos.reduce((maior, segmento) => {
+    const fim = Number(segmento.end_frame);
+    return Number.isFinite(fim) ? Math.max(maior, Math.round(fim)) : maior;
+  }, -1);
+  return Math.max(0, Math.min(totalFrames, ultimoFim + 1));
+}
+
+function sincronizarCamposTrechoPlayerFocus() {
+  if (elementos.segmentoInicioPlayerFocus) {
+    elementos.segmentoInicioPlayerFocus.value = String(proximoInicioTrechoPlayerFocus());
+  }
+  if (elementos.segmentoFimPlayerFocus && document.activeElement !== elementos.segmentoFimPlayerFocus) {
+    elementos.segmentoFimPlayerFocus.value = String(estado.playerFocus.frameIndex);
+  }
+}
+
+function fimTrechoSelecionadoPlayerFocus() {
+  const fim = Number(elementos.segmentoFimPlayerFocus?.value);
+  return Number.isFinite(fim) ? Math.round(fim) : estado.playerFocus.frameIndex;
+}
+
+function atualizarSelecaoFramePlayerFocus(tempo, opcoes = {}) {
+  estado.playerFocus.tempo = normalizarTempoPlayerFocus(tempo);
+  estado.playerFocus.frameIndex = frameAtualPlayerFocus(estado.playerFocus.tempo);
+  if (opcoes.sincronizarRange && elementos.rangeTempoPlayerFocus) {
+    elementos.rangeTempoPlayerFocus.value = String(estado.playerFocus.tempo);
+  }
+  if (elementos.tempoPlayerFocus) {
+    elementos.tempoPlayerFocus.textContent = `${formatarNumero(estado.playerFocus.tempo, " s")}`;
+  }
+  if (elementos.framePlayerFocus) {
+    elementos.framePlayerFocus.textContent = `Frame ${estado.playerFocus.frameIndex}`;
+  }
+  sincronizarCamposTrechoPlayerFocus();
+  if (elementos.botaoLimparAlvoFramePlayerFocus) {
+    elementos.botaoLimparAlvoFramePlayerFocus.disabled = !estado.playerFocus.manualTargets?.[String(estado.playerFocus.frameIndex)];
+  }
+  if (elementos.botaoFrameAnteriorPlayerFocus) {
+    elementos.botaoFrameAnteriorPlayerFocus.disabled = estado.playerFocus.frameIndex <= 0;
+  }
+  if (elementos.botaoFrameProximoPlayerFocus) {
+    elementos.botaoFrameProximoPlayerFocus.disabled = estado.playerFocus.frameIndex >= totalFramesPlayerFocus() - 1;
+  }
+  atualizarEstadoCortePlayerFocus();
+}
+
+function carregarFrameSelecionadoPlayerFocus(mensagemErro = "Falha ao carregar frame.") {
+  return carregarFramePlayerFocus(estado.playerFocus.tempo)
+    .then((aplicouFrame) => {
+      if (aplicouFrame !== false) {
+        atualizarInterfacePlayerFocus();
+      }
+    })
+    .catch((erro) => {
+      elementos.progressoPlayerFocus.textContent = erro.message ?? mensagemErro;
+      console.error(erro);
+    });
+}
+
+function selecionarFramePorDeltaPlayerFocus(delta, mensagem = "Solte para carregar.") {
+  const frame = Math.max(0, Math.min(totalFramesPlayerFocus() - 1, estado.playerFocus.frameIndex + delta));
+  estado.playerFocus.frameRequestSeq = (estado.playerFocus.frameRequestSeq || 0) + 1;
+  atualizarSelecaoFramePlayerFocus(tempoFramePlayerFocus(frame), { sincronizarRange: true });
+  if (!estado.playerFocus.renderizando && estado.playerFocus.imagem) {
+    elementos.progressoPlayerFocus.textContent = `Frame ${estado.playerFocus.frameIndex} selecionado. ${mensagem}`;
+  }
+}
+
+function cancelarCarregamentoFrameTecladoPlayerFocus() {
+  if (estado.playerFocus.frameKeyboardTimer) {
+    window.clearTimeout(estado.playerFocus.frameKeyboardTimer);
+    estado.playerFocus.frameKeyboardTimer = null;
+  }
+  estado.playerFocus.frameKeyboardPending = false;
+}
+
+function agendarCarregamentoFrameTecladoPlayerFocus() {
+  if (estado.playerFocus.frameKeyboardTimer) {
+    window.clearTimeout(estado.playerFocus.frameKeyboardTimer);
+  }
+  estado.playerFocus.frameKeyboardPending = true;
+  estado.playerFocus.frameKeyboardTimer = window.setTimeout(() => {
+    estado.playerFocus.frameKeyboardTimer = null;
+    if (!estado.playerFocus.frameKeyboardPending || !modalPlayerFocusAberto()) {
+      return;
+    }
+    estado.playerFocus.frameKeyboardPending = false;
+    carregarFrameSelecionadoPlayerFocus("Falha ao navegar frame.");
+  }, 180);
+}
+
+function confirmarCarregamentoFrameTecladoPlayerFocus() {
+  if (!estado.playerFocus.frameKeyboardPending) {
+    return;
+  }
+  if (estado.playerFocus.frameKeyboardTimer) {
+    window.clearTimeout(estado.playerFocus.frameKeyboardTimer);
+    estado.playerFocus.frameKeyboardTimer = null;
+  }
+  estado.playerFocus.frameKeyboardPending = false;
+  carregarFrameSelecionadoPlayerFocus("Falha ao navegar frame.");
+}
+
+function navegarFramePlayerFocus(delta) {
+  const frame = Math.max(0, Math.min(totalFramesPlayerFocus() - 1, estado.playerFocus.frameIndex + delta));
+  const tempo = tempoFramePlayerFocus(frame);
+  elementos.rangeTempoPlayerFocus.value = String(tempo);
+  return carregarFramePlayerFocus(tempo);
 }
 
 function configurarCanvasPlayerFocus(imagem) {
@@ -988,11 +1299,22 @@ function desenharCanvasPlayerFocus() {
     return;
   }
 
+  const ajustes = estado.playerFocus.imageAdjustments || {};
+  const brilho = 1 + Number(ajustes.brightness || 0) / 100;
+  const saturacao = Number(ajustes.saturation || 1);
+  const definicaoPreview = 1 + Math.max(0, Number(ajustes.definition ?? 1.35) - 1) * 0.06;
+  ctx.save();
+  ctx.filter = `brightness(${brilho}) saturate(${saturacao}) contrast(${definicaoPreview})`;
   ctx.drawImage(estado.playerFocus.imagem, 0, 0, canvas.width, canvas.height);
+  ctx.restore();
   desenharCaixaRecortePlayerFocus(ctx);
   desenharMarcadorPlayerFocus(ctx, estado.playerFocus.anchors.p1, "J1", "#0f766e");
   if (estado.playerFocus.playerCount > 1) {
     desenharMarcadorPlayerFocus(ctx, estado.playerFocus.anchors.p2, "J2", "#b45309");
+  }
+  const alvoManual = alvoManualPreviewPlayerFocus();
+  if (alvoManual) {
+    desenharMarcadorPlayerFocus(ctx, alvoManual, "F", "#f59e0b");
   }
 }
 
@@ -1049,12 +1371,160 @@ function caixaRecortePlayerFocus(largura, altura) {
   }
   cropW = Math.max(16, cropW / zoom);
   cropH = Math.max(16, cropH / zoom);
-  const foco = estado.playerFocus.anchors[estado.playerFocus.focusPlayer] || estado.playerFocus.anchors.p1;
+  const focoManual = alvoManualPreviewPlayerFocus();
+  const foco = focoManual || focoSegmentoPreviewPlayerFocus() || (
+    estado.playerFocus.focusPlayer === "ball"
+      ? pontoBolinhaPreviewPlayerFocus()
+      : (estado.playerFocus.anchors[estado.playerFocus.focusPlayer] || estado.playerFocus.anchors.p1)
+  );
   const centroX = foco ? foco.x * largura : largura / 2;
   const centroY = foco ? foco.y * altura : altura / 2;
   const x = Math.max(0, Math.min(largura - cropW, centroX - cropW / 2));
   const y = Math.max(0, Math.min(altura - cropH, centroY - cropH / 2));
   return { x, y, w: cropW, h: cropH };
+}
+
+function pontoBolinhaPreviewPlayerFocus() {
+  const marcas = Array.isArray(estado.calibracao?.ball_marks) ? estado.calibracao.ball_marks : [];
+  if (!marcas.length) {
+    return null;
+  }
+  const tempoAtual = Number(estado.playerFocus.tempo || 0);
+  const marca = marcas
+    .filter((item) => Number.isFinite(Number(item.x)) && Number.isFinite(Number(item.y)))
+    .map((item) => ({
+      item,
+      distancia: Math.abs(Number(item.time_s ?? tempoAtual) - tempoAtual),
+    }))
+    .sort((a, b) => a.distancia - b.distancia)[0]?.item;
+  return marca ? limitarPontoNormalizado(marca) : null;
+}
+
+function alvoManualPreviewPlayerFocus() {
+  const alvo = estado.playerFocus.manualTargets?.[String(estado.playerFocus.frameIndex)];
+  return alvo ? limitarPontoNormalizado(alvo) : null;
+}
+
+function focoSegmentoPreviewPlayerFocus() {
+  const frame = estado.playerFocus.frameIndex;
+  const segmento = [...(estado.playerFocus.focusSegments || [])]
+    .filter((item) => frame >= Number(item.start_frame || 0) && frame <= Number(item.end_frame ?? frame))
+    .pop();
+  const foco = segmento?.focus;
+  if (!foco || foco === estado.playerFocus.focusPlayer) {
+    return null;
+  }
+  if (foco === "ball") {
+    return pontoBolinhaPreviewPlayerFocus();
+  }
+  return estado.playerFocus.anchors[foco] || null;
+}
+
+function salvarAlvoManualPlayerFocus(ponto) {
+  const alvo = limitarPontoNormalizado(ponto);
+  if (!alvo) {
+    return;
+  }
+  estado.playerFocus.manualTargets = estado.playerFocus.manualTargets || {};
+  estado.playerFocus.manualTargets[String(estado.playerFocus.frameIndex)] = {
+    x: Number(alvo.x.toFixed(5)),
+    y: Number(alvo.y.toFixed(5)),
+    frame_index: estado.playerFocus.frameIndex,
+    time_s: Number(estado.playerFocus.tempo.toFixed(4)),
+  };
+  estado.playerFocus.manualTargetMode = false;
+  atualizarInterfacePlayerFocus();
+  desenharCanvasPlayerFocus();
+}
+
+function limparAlvoManualFramePlayerFocus() {
+  if (!estado.playerFocus.manualTargets) {
+    return;
+  }
+  delete estado.playerFocus.manualTargets[String(estado.playerFocus.frameIndex)];
+  atualizarInterfacePlayerFocus();
+  desenharCanvasPlayerFocus();
+}
+
+function adicionarSegmentoPlayerFocus() {
+  const startFrame = proximoInicioTrechoPlayerFocus();
+  const endFrame = Math.max(startFrame, fimTrechoSelecionadoPlayerFocus());
+  const focus = elementos.segmentoFocoPlayerFocus?.value || estado.playerFocus.focusPlayer || "p1";
+  adicionarTrechoPlayerFocus(startFrame, endFrame, focus);
+  atualizarInterfacePlayerFocus();
+  desenharCanvasPlayerFocus();
+}
+
+function adicionarTrechoPlayerFocus(startFrame, endFrame, focus) {
+  const ultimoFrame = totalFramesPlayerFocus() - 1;
+  const inicio = Math.max(0, Math.min(ultimoFrame, Math.round(Number(startFrame || 0))));
+  const fim = Math.max(inicio, Math.min(ultimoFrame, Math.round(Number(endFrame || inicio))));
+  estado.playerFocus.focusSegments = estado.playerFocus.focusSegments || [];
+  estado.playerFocus.focusSegments.push({
+    start_frame: inicio,
+    end_frame: fim,
+    focus,
+  });
+  estado.playerFocus.focusSegments.sort((a, b) => Number(a.start_frame) - Number(b.start_frame));
+  estado.playerFocus.cutStartFrame = proximoInicioTrechoPlayerFocus();
+  return { startFrame: inicio, endFrame: fim, focus };
+}
+
+function focoCortePlayerFocus() {
+  return elementos.jogadorFocoPlayerFocus?.value || estado.playerFocus.focusPlayer || "p1";
+}
+
+function atualizarEstadoCortePlayerFocus() {
+  const totalFrames = totalFramesPlayerFocus();
+  const ultimoFrame = totalFrames - 1;
+  const inicio = proximoInicioTrechoPlayerFocus();
+  const temVideo = videoPlayerFocusPreparado();
+  estado.playerFocus.cutStartFrame = inicio;
+  if (elementos.inicioCortePlayerFocus) {
+    elementos.inicioCortePlayerFocus.textContent = inicio >= totalFrames ? "Fim" : `Início F${inicio}`;
+  }
+  if (elementos.botaoCortarTrechoPlayerFocus) {
+    elementos.botaoCortarTrechoPlayerFocus.disabled = !temVideo || inicio > ultimoFrame || estado.playerFocus.frameIndex < inicio;
+  }
+  if (elementos.botaoAdicionarSegmentoPlayerFocus) {
+    elementos.botaoAdicionarSegmentoPlayerFocus.disabled = !temVideo || inicio > ultimoFrame || fimTrechoSelecionadoPlayerFocus() < inicio;
+  }
+}
+
+async function cortarTrechoPlayerFocus() {
+  const ultimoFrame = totalFramesPlayerFocus() - 1;
+  const startFrame = proximoInicioTrechoPlayerFocus();
+  const endFrame = Math.max(0, Math.min(ultimoFrame, Math.round(Number(estado.playerFocus.frameIndex || 0))));
+  if (startFrame > ultimoFrame) {
+    elementos.progressoPlayerFocus.textContent = "Todos os frames ja foram cobertos pelos trechos.";
+    atualizarEstadoCortePlayerFocus();
+    return;
+  }
+  if (endFrame < startFrame) {
+    elementos.progressoPlayerFocus.textContent = `Escolha um frame a partir de ${startFrame} para cortar.`;
+    atualizarEstadoCortePlayerFocus();
+    return;
+  }
+  const trecho = adicionarTrechoPlayerFocus(startFrame, endFrame, focoCortePlayerFocus());
+  const proximoFrame = Math.min(ultimoFrame, trecho.endFrame + 1);
+  atualizarSelecaoFramePlayerFocus(tempoFramePlayerFocus(proximoFrame), { sincronizarRange: true });
+  await carregarFrameSelecionadoPlayerFocus("Falha ao carregar frame depois do corte.");
+  elementos.progressoPlayerFocus.textContent = `Trecho ${trecho.startFrame}-${trecho.endFrame} adicionado.`;
+}
+
+function removerSegmentoPlayerFocus(indice) {
+  estado.playerFocus.focusSegments = (estado.playerFocus.focusSegments || []).filter((_item, idx) => idx !== indice);
+  atualizarInterfacePlayerFocus();
+  desenharCanvasPlayerFocus();
+}
+
+function atualizarAjusteImagemPlayerFocus(nome, valor) {
+  estado.playerFocus.imageAdjustments = {
+    ...(estado.playerFocus.imageAdjustments || {}),
+    [nome]: Number(valor),
+  };
+  atualizarLabelsAjustesPlayerFocus();
+  desenharCanvasPlayerFocus();
 }
 
 function desenharMarcadorPlayerFocus(ctx, ponto, label, cor) {
@@ -1092,6 +1562,13 @@ function registrarCliquePlayerFocus(evento) {
   }
   const ponto = pontoNormalizadoCanvasPlayerFocus(evento);
   if (!ponto) {
+    return;
+  }
+  if (estado.playerFocus.manualTargetMode) {
+    salvarAlvoManualPlayerFocus(ponto);
+    return;
+  }
+  if (estado.playerFocus.focusPlayer === "ball") {
     return;
   }
   const chave = estado.playerFocus.etapa === "p2" && estado.playerFocus.playerCount > 1 ? "p2" : "p1";
@@ -1171,35 +1648,135 @@ function atualizarInterfacePlayerFocus() {
   }
   estado.playerFocus.focusPlayer = elementos.jogadorFocoPlayerFocus.value || "p1";
   estado.playerFocus.zoomFactor = Math.max(1, Math.min(2.5, Number(elementos.rangeZoomPlayerFocus.value || 1.35)));
+  estado.playerFocus.imageAdjustments = {
+    sharpness: Number(estado.playerFocus.imageAdjustments?.sharpness ?? 0.42),
+    definition: Number(estado.playerFocus.imageAdjustments?.definition ?? 1.35),
+    brightness: Number(estado.playerFocus.imageAdjustments?.brightness ?? 0),
+    saturation: Number(estado.playerFocus.imageAdjustments?.saturation ?? 1),
+  };
+  if (elementos.rangeNitidezPlayerFocus) {
+    elementos.rangeNitidezPlayerFocus.value = String(estado.playerFocus.imageAdjustments.sharpness);
+  }
+  if (elementos.rangeDefinicaoPlayerFocus) {
+    elementos.rangeDefinicaoPlayerFocus.value = String(estado.playerFocus.imageAdjustments.definition);
+  }
+  if (elementos.rangeBrilhoPlayerFocus) {
+    elementos.rangeBrilhoPlayerFocus.value = String(estado.playerFocus.imageAdjustments.brightness);
+  }
+  if (elementos.rangeSaturacaoPlayerFocus) {
+    elementos.rangeSaturacaoPlayerFocus.value = String(estado.playerFocus.imageAdjustments.saturation);
+  }
+  const focoBolinha = estado.playerFocus.focusPlayer === "ball";
   elementos.zoomPlayerFocus.textContent = `Zoom ${formatarNumero(estado.playerFocus.zoomFactor, "x")}`;
+  if (elementos.framePlayerFocus) {
+    elementos.framePlayerFocus.textContent = `Frame ${estado.playerFocus.frameIndex}`;
+  }
+  sincronizarCamposTrechoPlayerFocus();
+  if (elementos.segmentoFocoPlayerFocus) {
+    const opcaoP2Segmento = elementos.segmentoFocoPlayerFocus.querySelector("option[value='p2']");
+    if (opcaoP2Segmento) {
+      opcaoP2Segmento.disabled = estado.playerFocus.playerCount < 2;
+    }
+    if (estado.playerFocus.playerCount < 2 && elementos.segmentoFocoPlayerFocus.value === "p2") {
+      elementos.segmentoFocoPlayerFocus.value = "p1";
+    }
+  }
+  if (elementos.botaoSalvarAlvoFramePlayerFocus) {
+    elementos.botaoSalvarAlvoFramePlayerFocus.classList.toggle("ativo", Boolean(estado.playerFocus.manualTargetMode));
+  }
+  if (elementos.botaoLimparAlvoFramePlayerFocus) {
+    elementos.botaoLimparAlvoFramePlayerFocus.disabled = !estado.playerFocus.manualTargets?.[String(estado.playerFocus.frameIndex)];
+  }
+  if (elementos.botaoFrameAnteriorPlayerFocus) {
+    elementos.botaoFrameAnteriorPlayerFocus.disabled = estado.playerFocus.frameIndex <= 0;
+  }
+  if (elementos.botaoFrameProximoPlayerFocus) {
+    elementos.botaoFrameProximoPlayerFocus.disabled = estado.playerFocus.frameIndex >= totalFramesPlayerFocus() - 1;
+  }
+  atualizarEstadoCortePlayerFocus();
+  atualizarLabelsAjustesPlayerFocus();
+  renderizarListasEditorPlayerFocus();
   elementos.jogadorFocoPlayerFocus.querySelector("option[value='p2']").disabled = estado.playerFocus.playerCount < 2;
-  elementos.botaoMarcarP2PlayerFocus.disabled = estado.playerFocus.playerCount < 2;
+  elementos.botaoMarcarP1PlayerFocus.disabled = focoBolinha;
+  elementos.botaoMarcarP2PlayerFocus.disabled = focoBolinha || estado.playerFocus.playerCount < 2;
 
   const faltaP1 = !estado.playerFocus.anchors.p1;
   const faltaP2 = estado.playerFocus.playerCount > 1 && !estado.playerFocus.anchors.p2;
-  if (faltaP1) {
+  if (focoBolinha) {
+    estado.playerFocus.etapa = "ball";
+  } else if (faltaP1) {
     estado.playerFocus.etapa = "p1";
   } else if (faltaP2) {
     estado.playerFocus.etapa = "p2";
   }
 
-  elementos.alvoPlayerFocus.textContent = estado.playerFocus.etapa === "p2" ? "Jogador 2" : "Jogador 1";
+  elementos.alvoPlayerFocus.textContent = focoBolinha
+    ? "Bolinha"
+    : (estado.playerFocus.etapa === "p2" ? "Jogador 2" : "Jogador 1");
   elementos.botaoMarcarP1PlayerFocus.classList.toggle("preenchido", Boolean(estado.playerFocus.anchors.p1));
   elementos.botaoMarcarP2PlayerFocus.classList.toggle("preenchido", Boolean(estado.playerFocus.anchors.p2));
-  elementos.botaoMarcarP1PlayerFocus.classList.toggle("ativo", estado.playerFocus.etapa === "p1");
-  elementos.botaoMarcarP2PlayerFocus.classList.toggle("ativo", estado.playerFocus.etapa === "p2");
+  elementos.botaoMarcarP1PlayerFocus.classList.toggle("ativo", !focoBolinha && estado.playerFocus.etapa === "p1");
+  elementos.botaoMarcarP2PlayerFocus.classList.toggle("ativo", !focoBolinha && estado.playerFocus.etapa === "p2");
   document.querySelectorAll("[data-aspect-player-focus]").forEach((botao) => {
     botao.classList.toggle("ativo", botao.dataset.aspectPlayerFocus === estado.playerFocus.aspectRatio);
   });
 
-  const pronto = !faltaP1 && !faltaP2 && !estado.playerFocus.renderizando;
+  const focosSegmentos = new Set((estado.playerFocus.focusSegments || []).map((item) => item.focus));
+  const precisaP1 = estado.playerFocus.focusPlayer === "p1" || focosSegmentos.has("p1");
+  const precisaP2 = estado.playerFocus.focusPlayer === "p2" || focosSegmentos.has("p2");
+  const bloqueioJogador = (precisaP1 && faltaP1) || (precisaP2 && faltaP2);
+  const focoPrincipalOk = focoBolinha || (estado.playerFocus.focusPlayer === "p2" ? !faltaP2 : !faltaP1);
+  const pronto = (focoPrincipalOk || (estado.playerFocus.focusSegments || []).length > 0)
+    && !bloqueioJogador
+    && !estado.playerFocus.renderizando;
   elementos.botaoRenderPlayerFocus.disabled = !pronto;
   if (estado.playerFocus.renderizando) {
     elementos.progressoPlayerFocus.textContent = "Renderizando Player Focus...";
+  } else if (focoBolinha) {
+    elementos.progressoPlayerFocus.textContent = `Foco: Bolinha | ${estado.playerFocus.aspectRatio} | ${formatarNumero(estado.playerFocus.zoomFactor, "x")}`;
   } else if (!faltaP1 && !faltaP2) {
     elementos.progressoPlayerFocus.textContent = `Foco: ${estado.playerFocus.focusPlayer === "p2" ? "Jogador 2" : "Jogador 1"} | ${estado.playerFocus.aspectRatio} | ${formatarNumero(estado.playerFocus.zoomFactor, "x")}`;
   } else {
     elementos.progressoPlayerFocus.textContent = `Clique no ${estado.playerFocus.etapa === "p2" ? "Jogador 2" : "Jogador 1"}.`;
+  }
+}
+
+function atualizarLabelsAjustesPlayerFocus() {
+  const ajustes = estado.playerFocus.imageAdjustments || {};
+  if (elementos.nitidezPlayerFocus) {
+    elementos.nitidezPlayerFocus.textContent = `Nitidez ${formatarNumero(Number(ajustes.sharpness ?? 0.42), "x")}`;
+  }
+  if (elementos.definicaoPlayerFocus) {
+    elementos.definicaoPlayerFocus.textContent = `Definição ${formatarNumero(Number(ajustes.definition ?? 1.35), "x")}`;
+  }
+  if (elementos.brilhoPlayerFocus) {
+    elementos.brilhoPlayerFocus.textContent = `Brilho ${Math.round(Number(ajustes.brightness || 0))}`;
+  }
+  if (elementos.saturacaoPlayerFocus) {
+    elementos.saturacaoPlayerFocus.textContent = `Saturação ${formatarNumero(Number(ajustes.saturation ?? 1), "x")}`;
+  }
+}
+
+function renderizarListasEditorPlayerFocus() {
+  if (elementos.listaAlvosManuaisPlayerFocus) {
+    const alvos = Object.values(estado.playerFocus.manualTargets || {}).sort((a, b) => Number(a.frame_index) - Number(b.frame_index));
+    elementos.listaAlvosManuaisPlayerFocus.innerHTML = alvos.length
+      ? alvos.map((alvo) => `<span>F${alvo.frame_index}</span>`).join("")
+      : "<span>Nenhuma correção salva</span>";
+  }
+  if (elementos.listaSegmentosPlayerFocus) {
+    const rotulos = { p1: "J1", p2: "J2", ball: "Bolinha" };
+    const segmentos = estado.playerFocus.focusSegments || [];
+    elementos.listaSegmentosPlayerFocus.innerHTML = segmentos.length
+      ? segmentos.map((segmento, indice) => `
+          <button type="button" class="player-focus-chip" data-remover-segmento-player-focus="${indice}">
+            ${segmento.start_frame}-${segmento.end_frame}: ${rotulos[segmento.focus] || segmento.focus} x
+          </button>
+        `).join("")
+      : "<span>Nenhum trecho combinado</span>";
+    elementos.listaSegmentosPlayerFocus.querySelectorAll("[data-remover-segmento-player-focus]").forEach((botao) => {
+      botao.addEventListener("click", () => removerSegmentoPlayerFocus(Number(botao.dataset.removerSegmentoPlayerFocus)));
+    });
   }
 }
 
@@ -1214,6 +1791,10 @@ async function iniciarRenderPlayerFocus() {
     focus_player: estado.playerFocus.focusPlayer,
     aspect_ratio: estado.playerFocus.aspectRatio,
     zoom_factor: estado.playerFocus.zoomFactor,
+    calibracao: estado.calibracao,
+    focus_segments: estado.playerFocus.focusSegments,
+    manual_targets: Object.values(estado.playerFocus.manualTargets || {}),
+    image_adjustments: estado.playerFocus.imageAdjustments,
   };
   estado.playerFocus.renderizando = true;
   estado.playerFocus.downloadUrl = null;
@@ -1282,7 +1863,8 @@ function baixarPlayerFocus() {
   if (!estado.playerFocus.downloadUrl) {
     return;
   }
-  baixarArquivo(estado.playerFocus.downloadUrl, `player-focus-${estado.playerFocus.aspectRatio.replace(":", "x")}.mp4`);
+  const foco = estado.playerFocus.focusPlayer === "ball" ? "bolinha" : estado.playerFocus.focusPlayer;
+  baixarArquivo(estado.playerFocus.downloadUrl, `player-focus-${foco}-${estado.playerFocus.aspectRatio.replace(":", "x")}.mp4`);
 }
 
 function baixarArquivo(url, nome) {
@@ -4548,6 +5130,30 @@ window.addEventListener("keydown", (evento) => {
   const passo = evento.ctrlKey ? 0.1 : 0.01;
   ajustarTempoCalibracaoPorTecla(evento.key === "ArrowRight" ? passo : -passo);
 });
+window.addEventListener("keydown", (evento) => {
+  if (!modalPlayerFocusAberto() || evento.altKey || evento.metaKey) {
+    return;
+  }
+  if (["INPUT", "SELECT", "TEXTAREA"].includes(evento.target?.tagName)) {
+    return;
+  }
+  if (evento.key !== "ArrowLeft" && evento.key !== "ArrowRight") {
+    return;
+  }
+  evento.preventDefault();
+  const passo = evento.shiftKey ? 10 : 1;
+  selecionarFramePorDeltaPlayerFocus(evento.key === "ArrowRight" ? passo : -passo, "Solte a tecla para carregar.");
+  agendarCarregamentoFrameTecladoPlayerFocus();
+});
+window.addEventListener("keyup", (evento) => {
+  if (!modalPlayerFocusAberto() || evento.altKey || evento.metaKey) {
+    return;
+  }
+  if (evento.key !== "ArrowLeft" && evento.key !== "ArrowRight") {
+    return;
+  }
+  confirmarCarregamentoFrameTecladoPlayerFocus();
+});
 garantirSwitchModoCalibracao();
 elementos.botaoContatoRaqueteCalibracao.addEventListener("click", () => selecionarTipoEspecialBola("serve_contact"));
 elementos.botaoProjecaoContatoCalibracao.addEventListener("click", () => selecionarTipoEspecialBola("serve_contact_ground"));
@@ -4590,12 +5196,65 @@ elementos.canvasPlayerFocus.addEventListener("pointerdown", iniciarPanPlayerFocu
 elementos.canvasPlayerFocus.addEventListener("pointermove", moverPanPlayerFocus);
 elementos.canvasPlayerFocus.addEventListener("pointerup", finalizarPanPlayerFocus);
 elementos.canvasPlayerFocus.addEventListener("pointercancel", finalizarPanPlayerFocus);
+elementos.rangeTempoPlayerFocus.addEventListener("keydown", (evento) => {
+  if (evento.key !== "ArrowLeft" && evento.key !== "ArrowRight") {
+    return;
+  }
+  evento.preventDefault();
+  const passo = evento.shiftKey ? 10 : 1;
+  selecionarFramePorDeltaPlayerFocus(evento.key === "ArrowRight" ? passo : -passo, "Solte a tecla para carregar.");
+  agendarCarregamentoFrameTecladoPlayerFocus();
+});
+elementos.rangeTempoPlayerFocus.addEventListener("keyup", (evento) => {
+  if (evento.key !== "ArrowLeft" && evento.key !== "ArrowRight") {
+    return;
+  }
+  confirmarCarregamentoFrameTecladoPlayerFocus();
+});
 elementos.rangeTempoPlayerFocus.addEventListener("input", (evento) => {
-  carregarFramePlayerFocus(evento.target.value).catch((erro) => {
-    elementos.progressoPlayerFocus.textContent = erro.message ?? "Falha ao carregar frame.";
+  estado.playerFocus.frameRequestSeq = (estado.playerFocus.frameRequestSeq || 0) + 1;
+  atualizarSelecaoFramePlayerFocus(evento.target.value);
+  if (!estado.playerFocus.renderizando && estado.playerFocus.imagem) {
+    elementos.progressoPlayerFocus.textContent = `Frame ${estado.playerFocus.frameIndex} selecionado. Solte para carregar.`;
+  }
+});
+elementos.rangeTempoPlayerFocus.addEventListener("change", (evento) => {
+  if (estado.playerFocus.frameKeyboardPending) {
+    return;
+  }
+  atualizarSelecaoFramePlayerFocus(evento.target.value, { sincronizarRange: true });
+  carregarFrameSelecionadoPlayerFocus("Falha ao carregar frame.");
+});
+elementos.botaoFrameAnteriorPlayerFocus.addEventListener("click", () => {
+  navegarFramePlayerFocus(-1)
+    .then(atualizarInterfacePlayerFocus)
+    .catch((erro) => {
+      elementos.progressoPlayerFocus.textContent = erro.message ?? "Falha ao voltar frame.";
+      console.error(erro);
+    });
+});
+elementos.botaoFrameProximoPlayerFocus.addEventListener("click", () => {
+  navegarFramePlayerFocus(1)
+    .then(atualizarInterfacePlayerFocus)
+    .catch((erro) => {
+      elementos.progressoPlayerFocus.textContent = erro.message ?? "Falha ao avancar frame.";
+      console.error(erro);
+    });
+});
+elementos.botaoSalvarAlvoFramePlayerFocus.addEventListener("click", () => {
+  estado.playerFocus.manualTargetMode = true;
+  elementos.progressoPlayerFocus.textContent = `Clique no ponto central do recorte no frame ${estado.playerFocus.frameIndex}.`;
+  desenharCanvasPlayerFocus();
+});
+elementos.botaoLimparAlvoFramePlayerFocus.addEventListener("click", limparAlvoManualFramePlayerFocus);
+elementos.botaoCortarTrechoPlayerFocus.addEventListener("click", () => {
+  cortarTrechoPlayerFocus().catch((erro) => {
+    elementos.progressoPlayerFocus.textContent = erro.message ?? "Falha ao cortar trecho.";
     console.error(erro);
   });
 });
+elementos.botaoAdicionarSegmentoPlayerFocus.addEventListener("click", adicionarSegmentoPlayerFocus);
+elementos.segmentoFimPlayerFocus.addEventListener("input", atualizarEstadoCortePlayerFocus);
 elementos.qtdJogadoresPlayerFocus.addEventListener("change", () => {
   atualizarInterfacePlayerFocus();
   desenharCanvasPlayerFocus();
@@ -4632,6 +5291,18 @@ document.querySelectorAll("[data-aspect-player-focus]").forEach((botao) => {
 elementos.rangeZoomPlayerFocus.addEventListener("input", () => {
   atualizarInterfacePlayerFocus();
   desenharCanvasPlayerFocus();
+});
+elementos.rangeNitidezPlayerFocus.addEventListener("input", (evento) => {
+  atualizarAjusteImagemPlayerFocus("sharpness", evento.target.value);
+});
+elementos.rangeDefinicaoPlayerFocus.addEventListener("input", (evento) => {
+  atualizarAjusteImagemPlayerFocus("definition", evento.target.value);
+});
+elementos.rangeBrilhoPlayerFocus.addEventListener("input", (evento) => {
+  atualizarAjusteImagemPlayerFocus("brightness", evento.target.value);
+});
+elementos.rangeSaturacaoPlayerFocus.addEventListener("input", (evento) => {
+  atualizarAjusteImagemPlayerFocus("saturation", evento.target.value);
 });
 elementos.botaoRenderPlayerFocus.addEventListener("click", () => {
   iniciarRenderPlayerFocus().catch((erro) => {

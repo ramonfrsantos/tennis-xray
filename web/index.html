@@ -357,53 +357,149 @@
           </div>
 
           <aside class="calibracao-sidebar player-focus-sidebar">
-            <div class="calibracao-box">
-              <span class="rotulo-fato">Alvo</span>
-              <strong id="alvo-player-focus">Jogador 1</strong>
-              <p id="progresso-player-focus" class="texto-status">Clique no jogador em foco.</p>
+            <div class="player-focus-sidebar-scroll">
+              <section class="player-focus-section player-focus-section-alvo" aria-label="Alvo atual">
+                <div>
+                  <span class="rotulo-fato">Alvo atual</span>
+                  <strong id="alvo-player-focus">Jogador 1</strong>
+                </div>
+                <p id="progresso-player-focus" class="texto-status">Clique no jogador em foco.</p>
+              </section>
+
+              <section class="player-focus-section" aria-label="Escolha de jogadores e foco">
+                <div class="player-focus-section-top">
+                  <span class="rotulo-fato">Foco</span>
+                </div>
+                <div class="player-focus-control-grid">
+                  <label class="campo campo-compacto">
+                    <span>Jogadores</span>
+                    <select id="qtd-jogadores-player-focus">
+                      <option value="1">1 jogador</option>
+                      <option value="2" selected>2 jogadores</option>
+                    </select>
+                  </label>
+
+                  <label class="campo campo-compacto">
+                    <span>Alvo</span>
+                    <select id="jogador-foco-player-focus">
+                      <option value="p1" selected>Jogador 1</option>
+                      <option value="p2">Jogador 2</option>
+                      <option value="ball">Bolinha</option>
+                    </select>
+                  </label>
+                </div>
+              </section>
+
+              <section class="player-focus-section" aria-label="Formato do recorte">
+                <div class="player-focus-section-top">
+                  <span class="rotulo-fato">Formato</span>
+                  <p id="zoom-player-focus" class="texto-status">Zoom 1,35x</p>
+                </div>
+                <div class="player-focus-aspectos" role="group" aria-label="Proporção vertical">
+                  <button class="botao secundario ativo" type="button" data-aspect-player-focus="9:16">9:16</button>
+                  <button class="botao secundario" type="button" data-aspect-player-focus="9:20">9:20</button>
+                  <button class="botao secundario" type="button" data-aspect-player-focus="4:5">4:5</button>
+                </div>
+
+                <label class="campo campo-compacto player-focus-range-field">
+                  <span>Zoom</span>
+                  <input id="range-zoom-player-focus" type="range" min="1" max="2.5" value="1.35" step="0.05" />
+                </label>
+              </section>
+
+              <section class="player-focus-section" aria-label="Navegação do frame">
+                <div class="player-focus-section-top">
+                  <span class="rotulo-fato">Frame</span>
+                  <p id="frame-player-focus" class="texto-status">Frame 0</p>
+                </div>
+                <label class="campo campo-compacto player-focus-range-field">
+                  <span>Posição</span>
+                  <input id="range-tempo-player-focus" type="range" min="0" max="0" value="0" step="0.05" />
+                </label>
+                <div class="player-focus-framebar">
+                  <button id="botao-frame-anterior-player-focus" class="botao secundario" type="button" aria-label="Frame anterior">&#x2039;</button>
+                  <p id="tempo-player-focus" class="texto-status">0,00s</p>
+                  <button id="botao-frame-proximo-player-focus" class="botao secundario" type="button" aria-label="Proximo frame">&#x203A;</button>
+                </div>
+
+                <div class="player-focus-editor">
+                  <div class="player-focus-marcadores">
+                    <button id="botao-salvar-alvo-frame-player-focus" class="botao secundario" type="button">Marcar foco</button>
+                    <button id="botao-limpar-alvo-frame-player-focus" class="botao secundario" type="button">Limpar frame</button>
+                  </div>
+                  <div id="lista-alvos-manuais-player-focus" class="player-focus-lista"><span>Nenhuma correção salva</span></div>
+                </div>
+              </section>
+
+              <section class="player-focus-section" aria-label="Trechos combinados">
+                <div class="player-focus-section-top">
+                  <span class="rotulo-fato">Trechos</span>
+                  <p id="inicio-corte-player-focus" class="texto-status">Início F0</p>
+                </div>
+                <div class="player-focus-editor">
+                  <div class="player-focus-corte">
+                    <button id="botao-cortar-trecho-player-focus" class="botao secundario" type="button">Cortar</button>
+                  </div>
+                  <div class="player-focus-segmento-grid">
+                    <label class="campo campo-compacto">
+                      <span>Inicio</span>
+                      <input id="segmento-inicio-player-focus" type="number" min="0" value="0" step="1" readonly />
+                    </label>
+                    <label class="campo campo-compacto">
+                      <span>Fim</span>
+                      <input id="segmento-fim-player-focus" type="number" min="0" value="0" step="1" />
+                    </label>
+                    <label class="campo campo-compacto">
+                      <span>Foco</span>
+                      <select id="segmento-foco-player-focus">
+                        <option value="p1">J1</option>
+                        <option value="p2">J2</option>
+                        <option value="ball">Bolinha</option>
+                      </select>
+                    </label>
+                  </div>
+                  <button id="botao-adicionar-segmento-player-focus" class="botao secundario" type="button">Adicionar trecho</button>
+                  <div id="lista-segmentos-player-focus" class="player-focus-lista"><span>Nenhum trecho combinado</span></div>
+                </div>
+              </section>
+
+              <section class="player-focus-section" aria-label="Ajustes de imagem">
+                <div class="player-focus-section-top">
+                  <span class="rotulo-fato">Imagem</span>
+                </div>
+                <div class="player-focus-ajustes">
+                  <label class="campo campo-compacto">
+                    <span id="nitidez-player-focus">Nitidez 0,42x</span>
+                    <input id="range-nitidez-player-focus" type="range" min="0" max="1.2" value="0.42" step="0.02" />
+                  </label>
+                  <label class="campo campo-compacto">
+                    <span id="definicao-player-focus">Definição 1,35x</span>
+                    <input id="range-definicao-player-focus" type="range" min="0" max="3" value="1.35" step="0.05" />
+                  </label>
+                  <label class="campo campo-compacto">
+                    <span id="brilho-player-focus">Brilho 0</span>
+                    <input id="range-brilho-player-focus" type="range" min="-60" max="60" value="0" step="1" />
+                  </label>
+                  <label class="campo campo-compacto">
+                    <span id="saturacao-player-focus">Saturação 1,00x</span>
+                    <input id="range-saturacao-player-focus" type="range" min="0" max="2" value="1" step="0.02" />
+                  </label>
+                </div>
+              </section>
+
+              <section class="player-focus-section" aria-label="Marcadores">
+                <div class="player-focus-section-top">
+                  <span class="rotulo-fato">Marcadores</span>
+                </div>
+                <div class="player-focus-marcadores">
+                  <button id="botao-marcar-p1-player-focus" class="botao secundario" type="button">Marcar J1</button>
+                  <button id="botao-marcar-p2-player-focus" class="botao secundario" type="button">Marcar J2</button>
+                  <button id="botao-limpar-player-focus" class="botao secundario" type="button">Limpar</button>
+                </div>
+              </section>
             </div>
 
-            <label class="campo campo-compacto">
-              <span>Jogadores</span>
-              <select id="qtd-jogadores-player-focus">
-                <option value="1">1 jogador</option>
-                <option value="2" selected>2 jogadores</option>
-              </select>
-            </label>
-
-            <label class="campo campo-compacto">
-              <span>Foco</span>
-              <select id="jogador-foco-player-focus">
-                <option value="p1" selected>Jogador 1</option>
-                <option value="p2">Jogador 2</option>
-              </select>
-            </label>
-
-            <label class="campo campo-compacto">
-              <span>Frame</span>
-              <input id="range-tempo-player-focus" type="range" min="0" max="0" value="0" step="0.05" />
-            </label>
-            <p id="tempo-player-focus" class="texto-status">0,00s</p>
-
-            <div class="player-focus-aspectos" role="group" aria-label="Proporcao vertical">
-              <button class="botao secundario ativo" type="button" data-aspect-player-focus="9:16">9:16</button>
-              <button class="botao secundario" type="button" data-aspect-player-focus="9:20">9:20</button>
-              <button class="botao secundario" type="button" data-aspect-player-focus="4:5">4:5</button>
-            </div>
-
-            <label class="campo campo-compacto">
-              <span>Zoom do recorte</span>
-              <input id="range-zoom-player-focus" type="range" min="1" max="2.5" value="1.35" step="0.05" />
-            </label>
-            <p id="zoom-player-focus" class="texto-status">Zoom 1,35x</p>
-
-            <div class="player-focus-marcadores">
-              <button id="botao-marcar-p1-player-focus" class="botao secundario" type="button">Marcar J1</button>
-              <button id="botao-marcar-p2-player-focus" class="botao secundario" type="button">Marcar J2</button>
-              <button id="botao-limpar-player-focus" class="botao secundario" type="button">Limpar</button>
-            </div>
-
-            <div class="botoes-calibracao">
+            <div class="botoes-calibracao player-focus-actions">
               <button id="botao-render-player-focus" class="botao primario" type="button" disabled>Gerar download</button>
               <button id="botao-baixar-player-focus" class="botao secundario oculto" type="button">Baixar MP4</button>
             </div>

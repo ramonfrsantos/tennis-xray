@@ -204,6 +204,10 @@ def criar_player_focus(
         "focus_player": payload.get("focus_player"),
         "aspect_ratio": payload.get("aspect_ratio"),
         "zoom_factor": payload.get("zoom_factor"),
+        "calibracao": payload.get("calibracao"),
+        "focus_segments": payload.get("focus_segments"),
+        "manual_targets": payload.get("manual_targets"),
+        "image_adjustments": payload.get("image_adjustments"),
     }
     _validar_config_player_focus(config)
 
@@ -316,21 +320,58 @@ def _validar_config_player_focus(config: dict) -> None:
         raise HTTPException(status_code=400, detail="Escolha um zoom entre 1.0x e 2.5x.")
     config["zoom_factor"] = zoom_factor
     focus = str(config.get("focus_player") or "").lower()
-    if focus not in {"p1", "p2"}:
-        raise HTTPException(status_code=400, detail="Escolha o jogador em foco.")
+    if focus in {"bola", "bolinha", "tennis_ball"}:
+        focus = "ball"
+    if focus not in {"p1", "p2", "ball"}:
+        raise HTTPException(status_code=400, detail="Escolha o foco: Jogador 1, Jogador 2 ou Bolinha.")
+    config["focus_player"] = focus
+    calibracao = config.get("calibracao")
+    if calibracao is not None and not isinstance(calibracao, dict):
+        raise HTTPException(status_code=400, detail="Calibracao do Player Focus invalida.")
     try:
         player_count = int(config.get("player_count") or 1)
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail="Quantidade de jogadores invalida.") from exc
     if player_count not in {1, 2}:
         raise HTTPException(status_code=400, detail="Escolha 1 ou 2 jogadores.")
-    players = config.get("players")
-    if not isinstance(players, dict):
-        raise HTTPException(status_code=400, detail="Marque os jogadores no frame.")
-    required = ["p1"] if player_count == 1 else ["p1", "p2"]
-    if focus == "p2" and player_count < 2:
+    segmentos_normalizados = []
+    focos_necessarios = {focus} if focus in {"p1", "p2"} else set()
+    segmentos = config.get("focus_segments")
+    if segmentos is not None:
+        if not isinstance(segmentos, list):
+            raise HTTPException(status_code=400, detail="Segmentos de foco invalidos.")
+        for segmento in segmentos:
+            if not isinstance(segmento, dict):
+                raise HTTPException(status_code=400, detail="Segmento de foco invalido.")
+            foco_segmento = str(segmento.get("focus") or segmento.get("focus_player") or focus).lower()
+            if foco_segmento in {"bola", "bolinha", "tennis_ball"}:
+                foco_segmento = "ball"
+            if foco_segmento not in {"p1", "p2", "ball"}:
+                raise HTTPException(status_code=400, detail="Segmento com foco invalido.")
+            if foco_segmento in {"p1", "p2"}:
+                focos_necessarios.add(foco_segmento)
+            try:
+                start_frame = int(float(segmento.get("start_frame", 0)))
+                end_raw = segmento.get("end_frame")
+                end_frame = None if end_raw is None or end_raw == "" else int(float(end_raw))
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(status_code=400, detail="Frames do segmento invalidos.") from exc
+            segmentos_normalizados.append({
+                "start_frame": start_frame,
+                "end_frame": end_frame,
+                "focus": foco_segmento,
+            })
+    config["focus_segments"] = segmentos_normalizados
+
+    if "p2" in focos_necessarios and player_count < 2:
         raise HTTPException(status_code=400, detail="Jogador 2 nao esta disponivel quando ha apenas 1 jogador.")
-    for key in required:
+    players = config.get("players")
+    if focos_necessarios and not isinstance(players, dict):
+        raise HTTPException(status_code=400, detail="Marque os jogadores usados nos focos.")
+    if not isinstance(players, dict):
+        config["players"] = {}
+        players = config["players"]
+    for key in sorted(focos_necessarios):
         ponto = players.get(key)
         if not isinstance(ponto, dict):
             raise HTTPException(status_code=400, detail=f"Marque o {key.upper()} no frame.")
@@ -341,6 +382,13 @@ def _validar_config_player_focus(config: dict) -> None:
             raise HTTPException(status_code=400, detail=f"Ponto do {key.upper()} invalido.") from exc
         if not 0 <= x <= 1 or not 0 <= y <= 1:
             raise HTTPException(status_code=400, detail=f"Ponto do {key.upper()} deve estar dentro do frame.")
+
+    manual_targets = config.get("manual_targets")
+    if manual_targets is not None and not isinstance(manual_targets, (list, dict)):
+        raise HTTPException(status_code=400, detail="Correcoes manuais de frame invalidas.")
+    image_adjustments = config.get("image_adjustments")
+    if image_adjustments is not None and not isinstance(image_adjustments, dict):
+        raise HTTPException(status_code=400, detail="Ajustes de imagem invalidos.")
 
 
 def _processar_job_player_focus(job_id: str, caminho_video: Path, config: dict) -> None:
